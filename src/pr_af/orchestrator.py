@@ -22,7 +22,7 @@ import httpx
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
-from .config import AUTO_DEPTH_THRESHOLDS, DEPTH_PROFILES, ReviewConfig
+from .config import AUTO_DEPTH_THRESHOLDS, DEPTH_PROFILES, ReviewConfig, git_timeout_seconds
 from .diff_engine import parse_unified_diff
 from .evidence import EvidencePackage, build_dimension_pack, extract_evidence_for_findings
 from .github.client import GitHubClient
@@ -2146,7 +2146,22 @@ class ReviewOrchestrator:
             revision = "HEAD~1...HEAD"
 
         cmd = ["git", "-C", repo_path, "diff", "--no-color", revision]
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        # Bounded by PR_AF_GIT_TIMEOUT_SECONDS like every other git call. This
+        # was previously unbounded, so a wedged git left the review hung with no
+        # diagnostic instead of surfacing a ValueError.
+        try:
+            result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=git_timeout_seconds(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError(
+                f"git diff of {revision} timed out after {exc.timeout:g}s "
+                f"(raise PR_AF_GIT_TIMEOUT_SECONDS)"
+            ) from exc
         if result.returncode != 0:
             raise ValueError(result.stderr.strip() or "Failed to compute git diff")
         return result.stdout

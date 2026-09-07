@@ -18,6 +18,63 @@ if TYPE_CHECKING:
     from .schemas.input import ReviewInput
 
 
+# ---------------------------------------------------------------------------
+# Git subprocess settings
+#
+# These live here rather than in app.py so orchestrator.py (which also shells
+# out to git, for the repo_path diff) can share them without importing app.py
+# and creating an import cycle.
+# ---------------------------------------------------------------------------
+
+DEFAULT_GIT_TIMEOUT_SECONDS = 600
+
+
+def git_timeout_seconds() -> float:
+    """Wall-clock ceiling for every git subprocess, from PR_AF_GIT_TIMEOUT_SECONDS.
+
+    One knob covers clone, fetch, checkout and diff. The old per-call literals
+    were sized for github.com-sized repos: ``checkout`` in particular had 30s,
+    which a large monorepo (deep tree, tens of thousands of files) blows through
+    while git is still writing the working tree — the review then died with
+    "git checkout ... timed out after 30 seconds" instead of reviewing.
+
+    The default (600s) is the largest of the previous literals, so no operation
+    gets a *shorter* budget than before. Non-positive or unparsable values fall
+    back to the default rather than disabling the timeout: an unbounded git call
+    hangs the whole review with no diagnostic, which is strictly worse than a
+    timeout error.
+    """
+    raw = os.getenv("PR_AF_GIT_TIMEOUT_SECONDS", "")
+    if not raw:
+        return float(DEFAULT_GIT_TIMEOUT_SECONDS)
+    try:
+        value = float(raw)
+    except ValueError:
+        print(
+            f"[PR-AF] Ignoring invalid PR_AF_GIT_TIMEOUT_SECONDS={raw!r} (must be a "
+            f"positive number of seconds); using {DEFAULT_GIT_TIMEOUT_SECONDS}",
+            flush=True,
+        )
+        return float(DEFAULT_GIT_TIMEOUT_SECONDS)
+    if value <= 0:
+        print(
+            f"[PR-AF] Ignoring non-positive PR_AF_GIT_TIMEOUT_SECONDS={raw!r}; "
+            f"using {DEFAULT_GIT_TIMEOUT_SECONDS}",
+            flush=True,
+        )
+        return float(DEFAULT_GIT_TIMEOUT_SECONDS)
+    return value
+
+
+def git_env() -> dict[str, str]:
+    """Environment for every git subprocess PR-AF runs.
+
+    GIT_TERMINAL_PROMPT=0 / GIT_ASKPASS=echo make a missing credential fail fast
+    instead of blocking on an interactive prompt.
+    """
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+
+
 class BudgetConfig(BaseModel):
     """Global and per-phase budget caps."""
 

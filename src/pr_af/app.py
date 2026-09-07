@@ -19,7 +19,7 @@ from agentfield import Agent, AIConfig
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request
 
-from .config import AIIntegrationConfig, ReviewConfig
+from .config import AIIntegrationConfig, ReviewConfig, git_env, git_timeout_seconds
 from .orchestrator import ReviewOrchestrator
 from .reasoners import router as reasoner_router
 from .schemas.input import ReviewInput  # noqa: TC001
@@ -85,7 +85,8 @@ def _resolve_budget_caps(
 
 
 def _checkout_pr_branch(target_dir: str, pr_number: int) -> None:
-    git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+    env = git_env()
+    git_timeout = git_timeout_seconds()
     # Fetch the PR head into FETCH_HEAD rather than directly into a local
     # ``pr-review`` branch. When the workspace is reused across reviews, the
     # previous run leaves ``pr-review`` checked out, and
@@ -98,8 +99,8 @@ def _checkout_pr_branch(target_dir: str, pr_number: int) -> None:
     # ``pr-review`` at it even when it is the currently checked-out branch.
     fetch = subprocess.run(
         ["git", "-C", target_dir, "fetch", "--depth", "1", "origin", f"pull/{pr_number}/head"],
-        env=git_env,
-        timeout=300,
+        env=env,
+        timeout=git_timeout,
         capture_output=True,
         text=True,
     )
@@ -107,8 +108,8 @@ def _checkout_pr_branch(target_dir: str, pr_number: int) -> None:
         raise ValueError(f"git fetch of PR #{pr_number} head failed: {fetch.stderr.strip()}")
     checkout = subprocess.run(
         ["git", "-C", target_dir, "checkout", "-B", "pr-review", "FETCH_HEAD"],
-        env=git_env,
-        timeout=30,
+        env=env,
+        timeout=git_timeout,
         capture_output=True,
         text=True,
     )
@@ -200,13 +201,15 @@ def _resolve_repo(repo_path: str | None, pr_url: str | None) -> str:
         if gh_token and clone_url.startswith("https://github.com/"):
             clone_url = clone_url.replace("https://github.com/", f"https://{gh_token}@github.com/")
 
-        git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
-        clone_timeout = 600  # Large repos (e.g. TrueNAS middleware) need time
+        env = git_env()
+        # Large repos (e.g. TrueNAS middleware, a Unity monorepo) need time; the
+        # ceiling is PR_AF_GIT_TIMEOUT_SECONDS for every git call in the flow.
+        clone_timeout = git_timeout_seconds()
 
         if os.path.isdir(target_dir) and os.path.isdir(os.path.join(target_dir, ".git")):
             subprocess.run(
                 ["git", "-C", target_dir, "fetch", "--all"],
-                env=git_env,
+                env=env,
                 timeout=clone_timeout,
                 capture_output=True,
             )
@@ -227,7 +230,7 @@ def _resolve_repo(repo_path: str | None, pr_url: str | None) -> str:
                 ]
             result = subprocess.run(
                 clone_cmd,
-                env=git_env,
+                env=env,
                 timeout=clone_timeout,
                 capture_output=True,
                 text=True,

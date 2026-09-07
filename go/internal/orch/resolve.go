@@ -21,14 +21,34 @@ import (
 	"time"
 )
 
-// git subprocess timeouts, matching app.py's subprocess.run(..., timeout=…).
-const (
-	cloneTimeout    = 600 * time.Second // large repos need time
-	fetchAllTimeout = 600 * time.Second // reused workspace refresh
-	prFetchTimeout  = 300 * time.Second // fetch of the PR head
-	checkoutTimeout = 30 * time.Second
-	diffTimeout     = 120 * time.Second
-)
+// defaultGitTimeout is the wall-clock ceiling applied to every git subprocess
+// (clone, fetch, checkout, diff) when PR_AF_GIT_TIMEOUT_SECONDS is unset. It is
+// the largest of the per-call literals this replaced (clone/fetch-all 600s, PR
+// fetch 300s, diff 120s, checkout 30s), so no operation gets a shorter budget
+// than before. The 30s checkout in particular blew up on large monorepos while
+// git was still writing the working tree, killing the review with
+// "git checkout ... timed out after 30 seconds".
+const defaultGitTimeout = 600 * time.Second
+
+// gitTimeout reads PR_AF_GIT_TIMEOUT_SECONDS (seconds, fractional allowed).
+// Non-positive or unparsable values fall back to defaultGitTimeout rather than
+// disabling the timeout: an unbounded git call hangs the whole review with no
+// diagnostic, which is strictly worse than a timeout error. Mirrors the Python
+// node's config.git_timeout_seconds().
+func gitTimeout() time.Duration {
+	raw := os.Getenv("PR_AF_GIT_TIMEOUT_SECONDS")
+	if raw == "" {
+		return defaultGitTimeout
+	}
+	secs, err := strconv.ParseFloat(raw, 64)
+	if err != nil || secs <= 0 {
+		fmt.Fprintf(os.Stderr,
+			"[PR-AF] Ignoring invalid PR_AF_GIT_TIMEOUT_SECONDS=%q (must be a positive "+
+				"number of seconds); using %s\n", raw, defaultGitTimeout)
+		return defaultGitTimeout
+	}
+	return time.Duration(secs * float64(time.Second))
+}
 
 // gitEnv reproduces app.py's git_env: the process environment plus
 // GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS=echo so a missing credential fails fast
@@ -78,12 +98,12 @@ func ExtractPRNumber(prURL string) (int, bool) {
 // it — the fix for the silent "reused workspace reviews the first PR forever"
 // bug. The two failure strings are the §B.4 verbatim contracts.
 func checkoutPRBranch(ctx context.Context, targetDir string, prNumber int) error {
-	_, stderr, err := runGit(ctx, prFetchTimeout,
+	_, stderr, err := runGit(ctx, gitTimeout(),
 		"-C", targetDir, "fetch", "--depth", "1", "origin", fmt.Sprintf("pull/%d/head", prNumber))
 	if err != nil {
 		return fmt.Errorf("git fetch of PR #%d head failed: %s", prNumber, strings.TrimSpace(stderr))
 	}
-	_, stderr, err = runGit(ctx, checkoutTimeout,
+	_, stderr, err = runGit(ctx, gitTimeout(),
 		"-C", targetDir, "checkout", "-B", "pr-review", "FETCH_HEAD")
 	if err != nil {
 		return fmt.Errorf("git checkout of PR #%d (pr-review) failed: %s", prNumber, strings.TrimSpace(stderr))
@@ -161,14 +181,14 @@ func ResolveRepo(ctx context.Context, repoPath, prURL string) (string, error) {
 
 		if isDir(targetDir) && isDir(filepath.Join(targetDir, ".git")) {
 			// Reused workspace: refresh all refs (errors swallowed, as Python does).
-			_, _, _ = runGit(ctx, fetchAllTimeout, "-C", targetDir, "fetch", "--all")
+			_, _, _ = runGit(ctx, gitTimeout(), "-C", targetDir, "fetch", "--all")
 		} else {
 			cloneCmd := []string{"clone", "--depth", "1", "--no-tags", cloneURL, targetDir}
 			if hasPR && prNumber != 0 {
 				// Skip default-branch checkout; the PR ref is fetched next.
 				cloneCmd = []string{"clone", "--depth", "1", "--no-tags", "--no-checkout", cloneURL, targetDir}
 			}
-			_, stderr, err := runGit(ctx, cloneTimeout, cloneCmd...)
+			_, stderr, err := runGit(ctx, gitTimeout(), cloneCmd...)
 			if err != nil {
 				return "", fmt.Errorf("git clone failed: %s", strings.TrimSpace(stderr))
 			}
@@ -212,7 +232,7 @@ func computeRepoDiff(ctx context.Context, repoPath, baseRef, headRef string) (st
 	default:
 		revision = "HEAD~1...HEAD"
 	}
-	stdout, stderr, err := runGit(ctx, diffTimeout, "-C", repoPath, "diff", "--no-color", revision)
+	stdout, stderr, err := runGit(ctx, gitTimeout(), "-C", repoPath, "diff", "--no-color", revision)
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
