@@ -56,6 +56,13 @@ services:
       - GH_TOKEN=${GH_TOKEN:-}
       - XDG_DATA_HOME=/home/praf/.local/share
       - PR_AF_WORKDIR=/workspaces
+      # Pass-through (bare, no `=`): forwarded only when set in .env or the
+      # shell, so an unset var keeps the node's own default.
+      - PR_AF_GIT_TIMEOUT_SECONDS
+      - PR_AF_SKIP_GIT_LFS
+      - PR_AF_MAX_CONCURRENT_REVIEWERS
+      - PR_AF_MAX_REVIEW_DEPTH
+      - PR_AF_MAX_COVERAGE_ITERATIONS
     ports:
       - "8007:8007"
     volumes:
