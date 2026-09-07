@@ -392,20 +392,28 @@ def _claim_label_trigger(delivery_id: str, pr_url: str) -> str | None:
         return None
 
 
+# (env var, review() input field, minimum accepted value) for the optional
+# per-deployment review caps. scripts/ci_runner.py carries a copy of this table
+# so it applies the SAME caps without importing the package (it is deliberately
+# stdlib-only so CI can run it without installing pr-af);
+# tests/test_review_limits.py asserts the two never drift.
+REVIEW_LIMIT_ENV_SPEC: tuple[tuple[str, str, int], ...] = (
+    ("PR_AF_MAX_CONCURRENT_AGENTS", "max_concurrent_agents", 1),
+    ("PR_AF_MAX_CONCURRENT_REVIEWERS", "max_concurrent_reviewers", 1),
+    ("PR_AF_MAX_REVIEW_DEPTH", "max_review_depth", 0),
+    ("PR_AF_MAX_COVERAGE_ITERATIONS", "max_coverage_iterations", 1),
+)
+
+
 def _webhook_review_limits() -> dict[str, object]:
-    """Optional per-deployment review limits for webhook-triggered runs.
+    """Optional per-deployment review limits for a triggered run.
 
     Only applied when the corresponding env var is set, so default behaviour is
     unchanged. Lets a small/shared host cap resource use (e.g. concurrency=1,
     review_depth=0) without a code change.
     """
     limits: dict[str, object] = {}
-    for env_name, input_key, minimum in (
-        ("PR_AF_MAX_CONCURRENT_AGENTS", "max_concurrent_agents", 1),
-        ("PR_AF_MAX_CONCURRENT_REVIEWERS", "max_concurrent_reviewers", 1),
-        ("PR_AF_MAX_REVIEW_DEPTH", "max_review_depth", 0),
-        ("PR_AF_MAX_COVERAGE_ITERATIONS", "max_coverage_iterations", 1),
-    ):
+    for env_name, input_key, minimum in REVIEW_LIMIT_ENV_SPEC:
         raw = os.getenv(env_name)
         if not raw:
             continue

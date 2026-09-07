@@ -5,7 +5,9 @@ Fires an async execution to the AgentField Control Plane and polls until complet
 Ensures GitHub Actions runners stay alive while the multi-agent DAG executes.
 
 Deliberately stdlib-only: a CI job can run this straight from a checkout
-without installing the package.
+without installing the package. That is why the review-cap table below is a
+copy of ``pr_af.app.REVIEW_LIMIT_ENV_SPEC`` rather than an import —
+``tests/test_review_limits.py`` asserts the two never drift.
 
 Usage:
     PR_URL=https://github.com/owner/repo/pull/123 python3 scripts/ci_runner.py
@@ -42,6 +44,16 @@ POLL_INTERVAL_SECONDS = 30
 TERMINAL_OK = ("succeeded", "success", "completed")
 TERMINAL_BAD = ("failed", "error", "cancelled", "canceled", "timeout")
 
+# (env var, review() input field, minimum accepted value). Mirrors
+# pr_af.app.REVIEW_LIMIT_ENV_SPEC so a deployment's caps apply identically
+# whether a review is triggered by webhook or by this script.
+REVIEW_LIMIT_ENV_SPEC = (
+    ("PR_AF_MAX_CONCURRENT_AGENTS", "max_concurrent_agents", 1),
+    ("PR_AF_MAX_CONCURRENT_REVIEWERS", "max_concurrent_reviewers", 1),
+    ("PR_AF_MAX_REVIEW_DEPTH", "max_review_depth", 0),
+    ("PR_AF_MAX_COVERAGE_ITERATIONS", "max_coverage_iterations", 1),
+)
+
 
 def _headers(extra=None):
     """Request headers, including the CP API key when one is configured."""
@@ -60,6 +72,33 @@ def _get_json(url, timeout=30):
             return json.loads(response.read().decode("utf-8", errors="replace"))
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def resolve_review_limits(environ=None):
+    """Per-deployment review caps from the environment, as review() inputs.
+
+    Same table and same validation as the webhook path, so the caps documented
+    in .env.example apply to a CI-triggered review too. Previously these fields
+    were left null here, and a host tuned to survive `PR_AF_MAX_REVIEW_DEPTH=0`
+    would silently get the full-depth default from CI.
+    """
+    environ = os.environ if environ is None else environ
+    limits = {}
+    for env_name, input_key, minimum in REVIEW_LIMIT_ENV_SPEC:
+        raw = environ.get(env_name)
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            value = minimum - 1
+        if value < minimum:
+            print(
+                f"[CI] Ignoring invalid {env_name}={raw!r} (must be an integer >= {minimum})"
+            )
+            continue
+        limits[input_key] = value
+    return limits
 
 
 def extract_error(payload, _depth=0):
@@ -136,9 +175,17 @@ def main():
     print(f"[CI] Initiating PR-AF Review for: {pr_url}")
 
     # 1. Fire the execution
-    payload = json.dumps(
-        {"input": {"pr_url": pr_url, "depth": "standard", "dry_run": False}}
-    ).encode("utf-8")
+    review_input = {
+        "pr_url": pr_url,
+        "depth": "standard",
+        "dry_run": False,
+    }
+    limits = resolve_review_limits()
+    if limits:
+        review_input.update(limits)
+        caps = ", ".join(f"{k}={v}" for k, v in sorted(limits.items()))
+        print(f"[CI] Applying deployment review caps: {caps}")
+    payload = json.dumps({"input": review_input}).encode("utf-8")
 
     req = urllib.request.Request(
         f"{CP_URL}/api/v1/execute/async/{NODE_ID}.review",

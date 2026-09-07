@@ -350,6 +350,9 @@ The key knobs (see `.env.example` for the full list):
 | `PR_AF_MAX_DURATION_SECONDS`| Per-run wall-clock ceiling in seconds (default `3600`)         |
 | `AGENTFIELD_HARNESS_IDLE_SECONDS` | Harness no-output watchdog window in seconds (default `360`) — harness CLIs in JSON mode emit events only at completion boundaries, so long single completions look silent |
 | `PR_AF_WORKDIR`             | Where PR checkouts live (default `/workspaces`); each PR gets its own `<repo>-pr<N>` workspace |
+| `PR_AF_MAX_CONCURRENT_REVIEWERS` | Optional review concurrency cap (minimum `1`) — applies to webhook and `scripts/ci_runner.py` runs alike |
+| `PR_AF_MAX_REVIEW_DEPTH`    | Optional sub-review depth cap (minimum `0`) — same scope |
+| `PR_AF_MAX_COVERAGE_ITERATIONS` | Optional coverage iteration cap (minimum `1`) — same scope |
 | `PR_AF_GIT_TIMEOUT_SECONDS` | Wall-clock ceiling for every git subprocess — clone, fetch, checkout, diff (default `600`). Raise it for large monorepos; the previous hardcoded 30s `checkout` timeout killed reviews of big repos mid-checkout |
 | `PR_AF_SKIP_GIT_LFS`        | Skip Git-LFS content at checkout (default `true`) — LFS-tracked files become pointer stubs, not real bytes. See [Git-LFS handling](#git-lfs-handling) |
 

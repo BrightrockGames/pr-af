@@ -165,9 +165,9 @@ The node is configured entirely through the environment.
 | `AGENTFIELD_AFORGE_COMMAND` | AForge headless command — `exec` (default) or `do`             |
 | `PR_AF_MODEL`               | Harness model (default `deepseek/deepseek-v4-flash-0731`)      |
 | `PR_AF_LABEL`               | Pull-request label that triggers a webhook review (default `pr-af`) |
-| `PR_AF_MAX_CONCURRENT_REVIEWERS` | Optional webhook review concurrency cap (minimum `1`)     |
-| `PR_AF_MAX_REVIEW_DEPTH`    | Optional webhook sub-review depth cap (minimum `0`)            |
-| `PR_AF_MAX_COVERAGE_ITERATIONS` | Optional webhook coverage iteration cap (minimum `1`)      |
+| `PR_AF_MAX_CONCURRENT_REVIEWERS` | Optional review concurrency cap (minimum `1`) — applies to webhook and CI-script runs alike |
+| `PR_AF_MAX_REVIEW_DEPTH`    | Optional sub-review depth cap (minimum `0`) — applies to webhook and CI-script runs alike |
+| `PR_AF_MAX_COVERAGE_ITERATIONS` | Optional coverage iteration cap (minimum `1`) — applies to webhook and CI-script runs alike |
 | `PR_AF_HARNESS_BIN`         | Optional harness executable override for every provider (point it at an `aforge` binary outside `PATH`); unset uses provider defaults |
 | `PR_AF_MAX_COST_USD`        | Per-run cost ceiling in USD (default `2.0`)                    |
 | `PR_AF_MAX_DURATION_SECONDS`| Per-run wall-clock ceiling in seconds (default `3600`)         |
