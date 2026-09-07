@@ -410,8 +410,19 @@ jobs:
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          python3 scripts/ci_runner.py
+          python3 scripts/ci_runner.py --verbose
 ```
+
+`--verbose` (or `PR_AF_CI_VERBOSE=1`) tails the execution's structured events
+as they arrive and polls every 10s instead of 30s, so the Actions log shows
+real progress rather than a silent gap through a 35-50 minute review. Without
+it you get one `[X.Ym] Status: running` line per poll. A control plane that
+does not expose the event stream prints one notice and falls back to polling.
+
+On failure the runner prints the actual reason — pulled from the execution's
+`error` field, or from its event log when that is where the control plane
+recorded it — so a failed review no longer requires dumping container logs to
+find out what happened.
 
 *Note: PR-AF runs a comprehensive parallel pipeline. Reviews typically take 35-50 minutes depending on PR complexity.*
 

@@ -125,3 +125,25 @@ def test_falls_back_to_supplementary_endpoints(monkeypatch) -> None:
     monkeypatch.setattr(ci_runner, "_get_json", fake_get_json)
     assert ci_runner.terminal_error("exec_1", {"status": "failed"}) == GIT_CLONE_ERROR
     assert any(url.endswith("/events") for url in calls)
+
+
+def test_event_label_includes_the_error() -> None:
+    """Verbose mode must show a failure reason inline, not just the type."""
+    label = ci_runner._event_label(
+        {"type": "reasoner.failed", "reasoner": "review", "error": GIT_CLONE_ERROR}
+    )
+    assert label is not None
+    assert "reasoner.failed" in label
+    assert "git clone failed" in label
+
+
+def test_event_label_skips_empty_events() -> None:
+    assert ci_runner._event_label({}) is None
+
+
+def test_verbose_defaults_off_and_env_enables_it(monkeypatch) -> None:
+    monkeypatch.delenv("PR_AF_CI_VERBOSE", raising=False)
+    assert ci_runner.parse_args([]).verbose is False
+    assert ci_runner.parse_args(["--verbose"]).verbose is True
+    monkeypatch.setenv("PR_AF_CI_VERBOSE", "1")
+    assert ci_runner.parse_args([]).verbose is True
