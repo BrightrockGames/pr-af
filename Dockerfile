@@ -77,10 +77,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# git-lfs is installed and registered (`git lfs install --system`) so the
+# PR_AF_SKIP_GIT_LFS=0 opt-in is functional. The DEFAULT is still to skip LFS
+# content: the node exports GIT_LFS_SKIP_SMUDGE=1 for every git call, so
+# LFS-tracked paths check out as pointer stubs. Before this, the skip was an
+# implicit consequence of git-lfs simply being absent from the image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    git && \
+    git \
+    git-lfs && \
+    git lfs install --system && \
     groupadd --gid 10001 praf && \
     useradd --uid 10001 --gid praf --create-home --home-dir /home/praf --shell /bin/sh praf && \
     su -s /bin/sh praf -c "curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} --no-modify-path" && \

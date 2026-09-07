@@ -156,6 +156,39 @@ graph TD
 
 ---
 
+### Git-LFS handling
+
+**PR-AF does not download Git-LFS content by default.** Every git call it makes
+runs with `GIT_LFS_SKIP_SMUDGE=1`, so LFS-tracked paths appear in the workspace
+as their small pointer stubs (a few lines of `version`/`oid`/`size` text) rather
+than the real bytes.
+
+This is deliberate. The pipeline reasons over source code, and reviewer agents
+cannot extract anything from a binary blob — while on an asset-heavy repository
+(Unity or other game projects, design source files, ML weights) the LFS payload
+is routinely orders of magnitude larger than the source. Downloading it would add
+minutes to every checkout and gigabytes to the `PR_AF_WORKDIR` volume for no
+review value.
+
+Two consequences worth knowing:
+
+- A finding that depends on the *contents* of an LFS-tracked file cannot be
+  produced. Changes to LFS-tracked paths still appear in the diff and in the
+  anatomy phase — PR-AF sees that the file changed, not what changed inside it.
+- A reviewer agent that opens an LFS-tracked file reads the pointer stub. That is
+  expected, not a bug.
+
+Set `PR_AF_SKIP_GIT_LFS=0` to check out real LFS content instead. Both Docker
+images install and register `git-lfs`, so the opt-in works without a rebuild;
+outside Docker it requires `git-lfs` on `PATH`. Expect the checkout to get
+considerably slower, and raise `PR_AF_GIT_TIMEOUT_SECONDS` accordingly.
+
+Prior to this being an explicit setting, LFS content was skipped only because
+`git-lfs` was absent from the images — an implicit behaviour that would have
+flipped silently the first time anything put it on `PATH`.
+
+---
+
 ## How It Works
 
 PR-AF uses this multi-phase cognitive pipeline to ensure rigorous, high-fidelity reviews:
@@ -273,6 +306,7 @@ The key knobs (see `.env.example` for the full list):
 | `AGENTFIELD_HARNESS_IDLE_SECONDS` | Harness no-output watchdog window in seconds (default `360`) — harness CLIs in JSON mode emit events only at completion boundaries, so long single completions look silent |
 | `PR_AF_WORKDIR`             | Where PR checkouts live (default `/workspaces`); each PR gets its own `<repo>-pr<N>` workspace |
 | `PR_AF_GIT_TIMEOUT_SECONDS` | Wall-clock ceiling for every git subprocess — clone, fetch, checkout, diff (default `600`). Raise it for large monorepos; the previous hardcoded 30s `checkout` timeout killed reviews of big repos mid-checkout |
+| `PR_AF_SKIP_GIT_LFS`        | Skip Git-LFS content at checkout (default `true`) — LFS-tracked files become pointer stubs, not real bytes. See [Git-LFS handling](#git-lfs-handling) |
 
 Both Docker images ship the released AForge CLI (fetched and checksum-verified
 at build time from `https://agentfield.ai/downloads/aforge`) and run `exec` by

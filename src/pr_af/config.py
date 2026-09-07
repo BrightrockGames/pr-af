@@ -66,13 +66,47 @@ def git_timeout_seconds() -> float:
     return value
 
 
+def skip_git_lfs() -> bool:
+    """Whether to skip Git-LFS content download at checkout (default: yes).
+
+    PR-AF reviews source code, not binary payloads, so pulling LFS objects is
+    pure cost: on an asset-heavy repo (Unity/game art, ML weights) it can be
+    orders of magnitude more bytes than the source, and the reviewers cannot
+    read the result anyway. With this on, LFS-tracked paths check out as their
+    small pointer stubs.
+
+    This used to be an *implicit* side effect of git-lfs not being installed in
+    the runtime images. That was fragile — installing git-lfs for any other
+    reason, or running the node on a host that has it, silently switched every
+    review to downloading gigabytes of assets. Setting GIT_LFS_SKIP_SMUDGE=1
+    explicitly makes the behaviour independent of what happens to be on PATH.
+
+    Set PR_AF_SKIP_GIT_LFS=0/false/no to let LFS smudge normally (requires
+    git-lfs on PATH; the Docker images install and register it).
+    """
+    return os.getenv("PR_AF_SKIP_GIT_LFS", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
 def git_env() -> dict[str, str]:
     """Environment for every git subprocess PR-AF runs.
 
     GIT_TERMINAL_PROMPT=0 / GIT_ASKPASS=echo make a missing credential fail fast
-    instead of blocking on an interactive prompt.
+    instead of blocking on an interactive prompt. GIT_LFS_SKIP_SMUDGE is set
+    explicitly (see skip_git_lfs) rather than left to whether git-lfs happens to
+    be installed.
     """
-    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+    if skip_git_lfs():
+        env["GIT_LFS_SKIP_SMUDGE"] = "1"
+    else:
+        # An inherited GIT_LFS_SKIP_SMUDGE would otherwise defeat an explicit
+        # opt-in to real LFS content.
+        env.pop("GIT_LFS_SKIP_SMUDGE", None)
+    return env
 
 
 class BudgetConfig(BaseModel):

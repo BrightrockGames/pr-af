@@ -73,6 +73,25 @@ The pipeline runs in 7 phases. Phases 1-3 are sequential (each builds on the pre
 
 ---
 
+## Workspace Checkout
+
+Before Phase 1 runs, the target revision has to exist on disk. A `pr_url` input
+resolves to a shallow, tag-less clone under `PR_AF_WORKDIR`, keyed per PR
+(`<repo>-pr<N>`) so concurrent reviews of different PRs in the same repository
+cannot collide; the PR head is fetched into `FETCH_HEAD` and `checkout -B
+pr-review` (re)points the branch at it, which also works when the workspace is
+being reused. Every git subprocess in this path is bounded by
+`PR_AF_GIT_TIMEOUT_SECONDS` (default 600) and runs with interactive credential
+prompts disabled.
+
+**Git-LFS content is skipped by default** (`GIT_LFS_SKIP_SMUDGE=1`), so
+LFS-tracked paths land as pointer stubs. The pipeline reasons over source code,
+and on an asset-heavy repository the LFS payload dwarfs the source for no review
+value. The trade-off is that no finding can depend on the *contents* of an
+LFS-tracked file — the diff and anatomy phases still see that such a file
+changed, just not what changed inside it. `PR_AF_SKIP_GIT_LFS=0` opts into real
+content; see [Git-LFS handling](../README.md#git-lfs-handling).
+
 ## Phase 1: Intake
 
 **Primitive:** `.ai()` with `.harness()` fallback

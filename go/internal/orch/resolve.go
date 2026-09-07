@@ -50,11 +50,49 @@ func gitTimeout() time.Duration {
 	return time.Duration(secs * float64(time.Second))
 }
 
+// skipGitLFS reports whether to skip Git-LFS content download at checkout
+// (default: yes). Mirrors the Python node's config.skip_git_lfs.
+//
+// PR-AF reviews source code, not binary payloads, so pulling LFS objects is
+// pure cost: on an asset-heavy repo (Unity/game art, ML weights) it can be
+// orders of magnitude more bytes than the source, and the reviewers cannot read
+// the result anyway. With this on, LFS-tracked paths check out as their small
+// pointer stubs.
+//
+// This used to be an IMPLICIT side effect of git-lfs not being installed in the
+// runtime image. That was fragile — installing git-lfs for any other reason, or
+// running the node on a host that has it, silently switched every review to
+// downloading gigabytes of assets. Setting GIT_LFS_SKIP_SMUDGE=1 explicitly
+// makes the behaviour independent of what happens to be on PATH.
+func skipGitLFS() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PR_AF_SKIP_GIT_LFS"))) {
+	case "0", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
 // gitEnv reproduces app.py's git_env: the process environment plus
 // GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS=echo so a missing credential fails fast
-// instead of blocking on an interactive prompt.
+// instead of blocking on an interactive prompt, plus an explicit
+// GIT_LFS_SKIP_SMUDGE (see skipGitLFS).
 func gitEnv() []string {
-	return append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=echo")
+	env := os.Environ()
+	if skipGitLFS() {
+		return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=echo", "GIT_LFS_SKIP_SMUDGE=1")
+	}
+	// An inherited GIT_LFS_SKIP_SMUDGE would otherwise defeat an explicit
+	// opt-in to real LFS content. exec uses the LAST assignment of a duplicated
+	// key on Linux, but not portably, so drop the inherited entries instead.
+	out := make([]string, 0, len(env)+2)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_LFS_SKIP_SMUDGE=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=echo")
 }
 
 // runGit executes a git command with a hard timeout and returns stdout, stderr,
