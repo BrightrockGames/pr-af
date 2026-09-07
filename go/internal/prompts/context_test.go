@@ -52,22 +52,22 @@ func TestMetaGolden(t *testing.T) {
 	patches := []StrPair{{Key: "client.py", Val: "@@ -1,3 +1,5 @@\n+def retry():\n+    pass"}}
 	lenses := []struct {
 		name string
-		fn   func(context, repoPath, depth string) string
+		fn   func(context, repoPath, depth, repoGuidance string) string
 	}{
 		{"semantic", MetaSemanticPrompt},
 		{"mechanical", MetaMechanicalPrompt},
 		{"systemic", MetaSystemicPrompt},
 	}
 	for _, l := range lenses {
-		ctxA := MetaContext(intakeFix(nil), anatA(), patches, "tone down the nitpicks")
-		assertGolden(t, "meta_"+l.name+"_A", l.fn(ctxA, "", "deep"))
-		ctxB := MetaContext(intakeFix(nil), anatomyFix(nil), nil, "")
-		assertGolden(t, "meta_"+l.name+"_B", l.fn(ctxB, "", "standard"))
+		ctxA := MetaContext(intakeFix(nil), anatA(), patches, "tone down the nitpicks", nil)
+		assertGolden(t, "meta_"+l.name+"_A", l.fn(ctxA, "", "deep", ""))
+		ctxB := MetaContext(intakeFix(nil), anatomyFix(nil), nil, "", nil)
+		assertGolden(t, "meta_"+l.name+"_B", l.fn(ctxB, "", "standard", ""))
 	}
 	// C: large-context file-write branch (semantic only).
 	bigPatches := []StrPair{{Key: "client.py", Val: bigFiller("patch", 9000)}}
-	ctxC := MetaContext(intakeFix(nil), anatA(), bigPatches, "focus on auth")
-	assertGolden(t, "meta_semantic_C", MetaSemanticPrompt(ctxC, fixtureRepo, "deep"))
+	ctxC := MetaContext(intakeFix(nil), anatA(), bigPatches, "focus on auth", nil)
+	assertGolden(t, "meta_semantic_C", MetaSemanticPrompt(ctxC, fixtureRepo, "deep", ""))
 }
 
 func TestCoverageGolden(t *testing.T) {

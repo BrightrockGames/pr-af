@@ -61,6 +61,7 @@ func ReviewDimension(ctx context.Context, deps Deps, in ReviewDimensionInput) (m
 		AllDimensionNames: in.AllDimensionNames,
 		ReviewerFeedback:  in.ReviewerFeedback,
 		PrimedCode:        in.PrimedCode,
+		RepoGuidance:      in.RepoGuidance,
 	})
 
 	parsed, res, err := harnessx.Run[reviewFindingsResult](ctx, deps.Harness, prompt, harness.Options{Cwd: in.RepoPath})

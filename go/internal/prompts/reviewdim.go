@@ -26,6 +26,7 @@ type ReviewDimensionOptions struct {
 	AllDimensionNames []string
 	ReviewerFeedback  string
 	PrimedCode        string
+	RepoGuidance      string
 }
 
 // ReviewDimensionPrompt builds the review_dimension reviewer prompt.
@@ -159,6 +160,7 @@ func ReviewDimensionPrompt(o ReviewDimensionOptions) string {
 		"**Target files** (read and analyze these): " + joinComma(o.TargetFiles) + "\n" +
 		"**Context files** (reference as needed): " + contextFiles + "\n\n" +
 		feedbackSection +
+		RepoGuidanceSection(o.RepoGuidance) +
 		descriptionSection +
 		prContextSection +
 		intakeSection +

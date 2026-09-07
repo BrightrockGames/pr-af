@@ -22,7 +22,13 @@ import httpx
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
-from .config import AUTO_DEPTH_THRESHOLDS, DEPTH_PROFILES, ReviewConfig, git_timeout_seconds
+from .config import (
+    AUTO_DEPTH_THRESHOLDS,
+    DEPTH_PROFILES,
+    ReviewConfig,
+    git_timeout_seconds,
+    read_repo_guidance,
+)
 from .diff_engine import parse_unified_diff
 from .evidence import EvidencePackage, build_dimension_pack, extract_evidence_for_findings
 from .github.client import GitHubClient
@@ -156,6 +162,9 @@ class ReviewOrchestrator:
         self.adversary_confirmed_count = 0
         self.adversary_challenged_count = 0
         self.effective_depth: str = "standard"
+        # Repo-root AGENTS.md, read lazily by _repo_guidance() and cached:
+        # it feeds every meta selector and every reviewer.
+        self._repo_guidance_cache: str | None = None
 
         # Review-wide agent-concurrency budget (#65): ONE semaphore for every
         # leaf agent invocation across all phases — including phases that run
@@ -556,6 +565,22 @@ class ReviewOrchestrator:
 
         return plan
 
+    def _repo_guidance(self) -> str:
+        """The workspace's root AGENTS.md, read once per review.
+
+        Cached because it feeds every meta selector and every reviewer, and the
+        workspace tree does not change mid-review.
+        """
+        if self._repo_guidance_cache is None:
+            self._repo_guidance_cache = read_repo_guidance(self.input.repo_path)
+            if self._repo_guidance_cache:
+                print(
+                    f"[PR-AF] Applying repo review guidance from AGENTS.md "
+                    f"({len(self._repo_guidance_cache)} chars)",
+                    flush=True,
+                )
+        return self._repo_guidance_cache
+
     async def _run_meta_selectors(
         self,
         intake: IntakeResult,
@@ -582,6 +607,8 @@ class ReviewOrchestrator:
                 repo_path=self.input.repo_path or "",
                 diff_patches=self._build_file_patches(),
                 reviewer_feedback=reviewer_feedback,
+                hints=self.config.hints,
+                repo_guidance=self._repo_guidance(),
             ))
             self.agent_invocations += 1
             self._register_cost("meta_selectors", self._extract_cost(result_raw))
@@ -816,6 +843,7 @@ class ReviewOrchestrator:
                     all_dimension_names=[d.name for d in plan.dimensions if d.id != dim.id],
                     reviewer_feedback=reviewer_feedback,
                     primed_code=primed,
+                    repo_guidance=self._repo_guidance(),
                 )
                 self.agent_invocations += 1
                 self._register_cost("review", self._extract_cost(result_raw))

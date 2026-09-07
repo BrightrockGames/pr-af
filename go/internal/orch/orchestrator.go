@@ -150,6 +150,12 @@ type Orchestrator struct {
 	patchesCache    []prompts.StrPair
 	patchesCacheSet bool
 
+	// Repo-root AGENTS.md, read lazily by repoGuidance() and cached: it feeds
+	// every meta selector and every reviewer, and the workspace tree does not
+	// change mid-review.
+	repoGuidanceCache    string
+	repoGuidanceCacheSet bool
+
 	// clock is time.Since(startedAt) — indirected so budget tests can drive it.
 	clock func() time.Duration
 

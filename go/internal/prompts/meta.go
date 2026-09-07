@@ -18,7 +18,7 @@ type StrPair struct{ Key, Val string }
 // three meta selectors interpolate. diffPatches is added only when non-empty
 // (Python `if diff_patches:`), truncated to the first 15 pairs in order;
 // reviewerFeedback is added only when non-empty.
-func MetaContext(intake schemas.IntakeResult, anatomy schemas.AnatomyResult, diffPatches []StrPair, reviewerFeedback string) string {
+func MetaContext(intake schemas.IntakeResult, anatomy schemas.AnatomyResult, diffPatches []StrPair, reviewerFeedback string, hints []string) string {
 	ctx := omap(
 		"intake", omap(
 			"pr_type", intake.PrType,
@@ -51,6 +51,13 @@ func MetaContext(intake schemas.IntakeResult, anatomy schemas.AnatomyResult, dif
 	if reviewerFeedback != "" {
 		ctx.Set("human_reviewer_guidance", reviewerFeedback)
 	}
+	// Caller-supplied review hints (the `hints` input field, or the text after
+	// an @mention in a webhook comment). These reached only PlanningPhase
+	// before, which is dead on the live path -- so hints passed to review() had
+	// no effect at all on the dimensions generated.
+	if len(hints) > 0 {
+		ctx.Set("review_hints", hints)
+	}
 	return pyJSON(ctx)
 }
 
@@ -69,18 +76,21 @@ func metaContextRef(lens, context, repoPath string) string {
 }
 
 // MetaSemanticPrompt builds the meta_semantic selector prompt.
-func MetaSemanticPrompt(context, repoPath, depth string) string {
-	return metaSemanticPre1 + depth + metaSemanticPre2 + metaContextRef("semantic", context, repoPath)
+func MetaSemanticPrompt(context, repoPath, depth, repoGuidance string) string {
+	return metaSemanticPre1 + depth + metaSemanticPre2 + RepoGuidanceSection(repoGuidance) +
+		metaContextRef("semantic", context, repoPath)
 }
 
 // MetaMechanicalPrompt builds the meta_mechanical selector prompt.
-func MetaMechanicalPrompt(context, repoPath, depth string) string {
-	return metaMechanicalPre1 + depth + metaMechanicalPre2 + metaContextRef("mechanical", context, repoPath)
+func MetaMechanicalPrompt(context, repoPath, depth, repoGuidance string) string {
+	return metaMechanicalPre1 + depth + metaMechanicalPre2 + RepoGuidanceSection(repoGuidance) +
+		metaContextRef("mechanical", context, repoPath)
 }
 
 // MetaSystemicPrompt builds the meta_systemic selector prompt.
-func MetaSystemicPrompt(context, repoPath, depth string) string {
-	return metaSystemicPre1 + depth + metaSystemicPre2 + metaContextRef("systemic", context, repoPath)
+func MetaSystemicPrompt(context, repoPath, depth, repoGuidance string) string {
+	return metaSystemicPre1 + depth + metaSystemicPre2 + RepoGuidanceSection(repoGuidance) +
+		metaContextRef("systemic", context, repoPath)
 }
 
 const metaSemanticPre1 = "You are a principal engineer designing review dimensions through the SEMANTIC lens.\n\n" +

@@ -40,9 +40,9 @@ func runMetaLens(
 	deps Deps,
 	in MetaInput,
 	lens string,
-	buildPrompt func(context, repoPath, depth string) string,
+	buildPrompt func(context, repoPath, depth, repoGuidance string) string,
 ) (map[string]any, error) {
-	metaContext := prompts.MetaContext(in.Intake, in.Anatomy, []prompts.StrPair(in.DiffPatches), in.ReviewerFeedback)
+	metaContext := prompts.MetaContext(in.Intake, in.Anatomy, []prompts.StrPair(in.DiffPatches), in.ReviewerFeedback, in.Hints)
 	// The builder embeds a file reference under the same condition; the write
 	// itself is this reasoner's job (Python _write_context_file).
 	if in.RepoPath != "" && utf8.RuneCountInString(metaContext) > 8000 {
@@ -51,7 +51,7 @@ func runMetaLens(
 		}
 	}
 
-	prompt := buildPrompt(metaContext, in.RepoPath, in.Depth)
+	prompt := buildPrompt(metaContext, in.RepoPath, in.Depth, in.RepoGuidance)
 	parsed, _, err := harnessx.Run[schemas.MetaDimensionResult](ctx, deps.Harness, prompt, harness.Options{Cwd: in.RepoPath})
 	if err != nil {
 		return nil, err

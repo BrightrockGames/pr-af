@@ -133,7 +133,7 @@ func TestMetaSelectorWritesContextFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("context file not written: %v", err)
 	}
-	want := prompts.MetaContext(in.Intake, in.Anatomy, []prompts.StrPair(in.DiffPatches), "")
+	want := prompts.MetaContext(in.Intake, in.Anatomy, []prompts.StrPair(in.DiffPatches), "", nil)
 	if string(b) != want {
 		t.Fatal("context file content diverges from prompts.MetaContext")
 	}

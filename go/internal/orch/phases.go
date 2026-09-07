@@ -292,6 +292,8 @@ func (o *Orchestrator) runMetaSelectors(
 				RepoPath:         strp(o.input.RepoPath),
 				DiffPatches:      diffPatches,
 				ReviewerFeedback: reviewerFeedback,
+				Hints:            o.config.Hints,
+				RepoGuidance:     o.repoGuidance(),
 			})
 			if err != nil {
 				return err
@@ -494,6 +496,7 @@ func (o *Orchestrator) runParallelReview(
 				AllDimensionNames: otherNames,
 				ReviewerFeedback:  feedback,
 				PrimedCode:        primed,
+				RepoGuidance:      o.repoGuidance(),
 			})
 			if err != nil {
 				return err

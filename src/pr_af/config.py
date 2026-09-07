@@ -10,12 +10,58 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from .schemas.input import ReviewInput
+
+
+# ---------------------------------------------------------------------------
+# Repo-specific review guidance (AGENTS.md)
+# ---------------------------------------------------------------------------
+
+REPO_GUIDANCE_FILENAME = "AGENTS.md"
+
+# Cap on the guidance text injected into prompts. A repo-root AGENTS.md is
+# normally a page or two; the cap stops a large one from crowding out the diff,
+# evidence pack and PR context that the review actually depends on.
+MAX_REPO_GUIDANCE_CHARS = 20_000
+
+
+def read_repo_guidance(repo_path: str | None) -> str:
+    """Read the checked-out repo's root ``AGENTS.md``, or "" when there is none.
+
+    This is the same convention OpenAI Codex review uses, so a repo that already
+    has an ``AGENTS.md`` for other agentic tools needs no PR-AF-specific file.
+    Only the repository ROOT is read — PR-AF does not walk up from each changed
+    file, because its reviewers are scoped to dimensions (which span files)
+    rather than to a single file.
+
+    Unreadable or oversized files degrade to a truncated value or "" rather than
+    failing the review: missing conventions make the review less specific, not
+    wrong.
+    """
+    if not repo_path:
+        return ""
+    path = Path(repo_path) / REPO_GUIDANCE_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError):
+        return ""
+    text = text.strip()
+    if len(text) > MAX_REPO_GUIDANCE_CHARS:
+        text = (
+            text[:MAX_REPO_GUIDANCE_CHARS].rstrip()
+            + "\n"
+            + "\n"
+            + "[truncated by PR-AF at "
+            + str(MAX_REPO_GUIDANCE_CHARS)
+            + " characters]"
+        )
+    return text
 
 
 # ---------------------------------------------------------------------------

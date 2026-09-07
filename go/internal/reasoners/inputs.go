@@ -137,6 +137,8 @@ type MetaInput struct {
 	RepoPath         string                `json:"repo_path"`
 	DiffPatches      OrderedPatches        `json:"diff_patches"`
 	ReviewerFeedback string                `json:"reviewer_feedback"`
+	Hints            []string              `json:"hints"`
+	RepoGuidance     string                `json:"repo_guidance"`
 }
 
 func (m *MetaInput) UnmarshalJSON(b []byte) error {
@@ -163,6 +165,7 @@ type ReviewDimensionInput struct {
 	AllDimensionNames []string          `json:"all_dimension_names"`
 	ReviewerFeedback  string            `json:"reviewer_feedback"`
 	PrimedCode        string            `json:"primed_code"`
+	RepoGuidance      string            `json:"repo_guidance"`
 }
 
 func (r *ReviewDimensionInput) UnmarshalJSON(b []byte) error {

@@ -143,6 +143,12 @@ with the default project name `pr-af` (the Python compose has no explicit
 compose file header for the `COMPOSE_PROJECT_NAME` override. Health:
 `curl -f http://localhost:8007/health`.
 
+## Repo-specific review guidance
+
+The Go node reads a root `AGENTS.md` from the reviewed checkout and threads it
+into the meta selectors and reviewers, identically to the Python node. See
+[Repo-specific review guidance](../README.md#repo-specific-review-guidance-agentsmd).
+
 ## Environment variables
 
 The node is configured entirely through the environment.

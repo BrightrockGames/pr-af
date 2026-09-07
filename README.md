@@ -189,6 +189,51 @@ flipped silently the first time anything put it on `PATH`.
 
 ---
 
+### Repo-specific review guidance (`AGENTS.md`)
+
+Drop an `AGENTS.md` at the root of the repository being reviewed and PR-AF
+applies it to every review of that repo. This is the same file OpenAI Codex code
+review reads, so a repo that already has one for other agentic tools needs no
+PR-AF-specific file.
+
+```markdown
+# Review conventions
+
+- Every `MonoBehaviour.Awake()` must null-check serialized fields before use.
+- Prefer `UnityEngine.Pool` over `new` in per-frame code paths; flag allocations
+  inside `Update`/`FixedUpdate`.
+- `Assets/Generated/**` is machine-written — do not report style findings there.
+```
+
+Its contents are threaded into the three meta-dimension selectors (so the review
+dimensions themselves are shaped by your conventions) and into every reviewer
+agent (so the engineer reading the code has them in hand). Only the repository
+**root** is read — PR-AF does not walk up from each changed file the way Codex
+does, because its reviewers are scoped to dimensions that span files rather than
+to one file at a time.
+
+| | |
+|---|---|
+| **Location** | `AGENTS.md` in the repo root of the reviewed checkout |
+| **Size cap** | 20,000 characters; longer files are truncated with a marker |
+| **Missing** | No effect — prompts are byte-identical to having no file |
+| **Per-call equivalent** | the `hints` input field, or any text after an `@pr-af` mention |
+
+`AGENTS.md` and `hints` are complementary: the file carries standing conventions,
+`hints` carries what matters for one review.
+
+```bash
+af call pr-af.review --in '{"pr_url": "...", "hints": ["focus on the netcode changes"]}'
+```
+
+**It cannot lower the review's bar.** `AGENTS.md` lives in the repository, so a
+pull request can edit it in the same diff. The injected block is delimited as
+data and carries a standing instruction to ignore anything in it that tells the
+reviewer to suppress findings, skip the false-positive gates, or alter severity
+calibration. It can add conventions and direct attention; it cannot disarm.
+
+---
+
 ## How It Works
 
 PR-AF uses this multi-phase cognitive pipeline to ensure rigorous, high-fidelity reviews:
