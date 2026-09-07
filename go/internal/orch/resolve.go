@@ -149,6 +149,33 @@ func checkoutPRBranch(ctx context.Context, targetDir string, prNumber int) error
 	return nil
 }
 
+// tokenizedCloneURL embeds token in a github.com HTTPS clone URL as basic-auth
+// credentials. Mirrors the Python node's _tokenized_clone_url.
+//
+// The username MUST be "x-access-token". GitHub App INSTALLATION tokens
+// (ghs_…, which is what secrets.GITHUB_TOKEN hands a GitHub Actions workflow)
+// are only accepted in that form; passing the token alone as the userinfo —
+// https://<token>@github.com/…, which is what this used to do — gets rejected
+// with:
+//
+//	remote: Invalid username or token. Password authentication is not
+//	supported for Git operations.
+//	fatal: Authentication failed for 'https://github.com/<org>/<repo>.git/'
+//
+// Classic PATs (ghp_…) are accepted either way, which is why this went
+// unnoticed. "x-access-token" works for both, so it is the only form used. Do
+// not "simplify" the username away.
+//
+// Non-github.com or non-HTTPS URLs, and an empty token, are returned unchanged.
+func tokenizedCloneURL(url, token string) string {
+	const prefix = "https://github.com/"
+	if token == "" || !strings.HasPrefix(url, prefix) {
+		return url
+	}
+	return strings.Replace(url, prefix,
+		fmt.Sprintf("https://x-access-token:%s@github.com/", token), 1)
+}
+
 // ResolveRepo ports app.py::_resolve_repo. It resolves repoPath / prURL to a
 // local directory: an existing dir is returned as-is (resolved absolute), an
 // http(s)/git@ URL is (shallow) cloned into $PR_AF_WORKDIR (with GH_TOKEN
@@ -210,12 +237,7 @@ func ResolveRepo(ctx context.Context, repoPath, prURL string) (string, error) {
 			return "", fmt.Errorf("git clone failed: %s", strings.TrimSpace(err.Error()))
 		}
 
-		cloneURL := target
-		ghToken := os.Getenv("GH_TOKEN")
-		if ghToken != "" && strings.HasPrefix(cloneURL, "https://github.com/") {
-			cloneURL = strings.Replace(cloneURL, "https://github.com/",
-				fmt.Sprintf("https://%s@github.com/", ghToken), 1)
-		}
+		cloneURL := tokenizedCloneURL(target, os.Getenv("GH_TOKEN"))
 
 		if isDir(targetDir) && isDir(filepath.Join(targetDir, ".git")) {
 			// Reused workspace: refresh all refs (errors swallowed, as Python does).

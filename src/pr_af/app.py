@@ -84,6 +84,31 @@ def _resolve_budget_caps(
     return max_cost_usd, max_duration_seconds
 
 
+def _tokenized_clone_url(url: str, token: str) -> str:
+    """Embed ``token`` in a github.com HTTPS clone URL as basic-auth credentials.
+
+    The username MUST be ``x-access-token``. GitHub App *installation* tokens
+    (``ghs_…``, which is what ``secrets.GITHUB_TOKEN`` hands a GitHub Actions
+    workflow) are only accepted in that form; passing the token alone as the
+    userinfo — ``https://<token>@github.com/…``, which is what this used to do —
+    gets rejected with:
+
+        remote: Invalid username or token. Password authentication is not
+        supported for Git operations.
+        fatal: Authentication failed for 'https://github.com/<org>/<repo>.git/'
+
+    Classic PATs (``ghp_…``) are accepted either way, which is why this went
+    unnoticed. ``x-access-token`` works for both, so it is the only form used.
+    Do not "simplify" the username away.
+
+    Non-github.com or non-HTTPS URLs, and an empty token, are returned unchanged.
+    """
+    prefix = "https://github.com/"
+    if not token or not url.startswith(prefix):
+        return url
+    return url.replace(prefix, f"https://x-access-token:{token}@github.com/", 1)
+
+
 def _checkout_pr_branch(target_dir: str, pr_number: int) -> None:
     env = git_env()
     git_timeout = git_timeout_seconds()
@@ -196,10 +221,7 @@ def _resolve_repo(repo_path: str | None, pr_url: str | None) -> str:
         os.makedirs(workdir, exist_ok=True)
         _reap_stale_workspaces(workdir, keep=target_dir)
 
-        clone_url = target
-        gh_token = os.getenv("GH_TOKEN", "")
-        if gh_token and clone_url.startswith("https://github.com/"):
-            clone_url = clone_url.replace("https://github.com/", f"https://{gh_token}@github.com/")
+        clone_url = _tokenized_clone_url(target, os.getenv("GH_TOKEN", ""))
 
         env = git_env()
         # Large repos (e.g. TrueNAS middleware, a Unity monorepo) need time; the

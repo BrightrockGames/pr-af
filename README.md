@@ -367,6 +367,13 @@ jobs:
 
 *Note: PR-AF runs a comprehensive parallel pipeline. Reviews typically take 35-50 minutes depending on PR complexity.*
 
+`secrets.GITHUB_TOKEN` is a GitHub App **installation** token (`ghs_…`), not a
+classic PAT. PR-AF embeds it in the clone URL as
+`https://x-access-token:<token>@github.com/…`, which is the only credential form
+GitHub accepts for those tokens — a bare-token URL fails with *"Invalid username
+or token. Password authentication is not supported for Git operations."* Classic
+PATs work through the same path, so `GH_TOKEN` can be either kind.
+
 ---
 ## From the AgentField AF Ecosystem
 
