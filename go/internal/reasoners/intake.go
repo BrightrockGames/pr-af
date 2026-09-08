@@ -15,8 +15,15 @@ import (
 // IntakeResult; otherwise it escalates to a full .harness() classification.
 //
 // Output keys (§B.2): pr_type, complexity, languages, areas_touched,
-// risk_signals, ai_generated, review_depth, pr_summary — or {} when the
-// harness fallback fails to parse (Python returns a literal empty dict).
+// risk_signals, ai_generated, review_depth, pr_summary.
+//
+// A harness fallback that produces nothing is an ERROR, not an empty result.
+// Both nodes used to return {} here and record the phase as succeeded; Go's
+// was the worse of the two, because mapToStruct turns {} into a zero-valued
+// IntakeResult (no required-field enforcement) and the pipeline then reviewed
+// the PR with an empty type/complexity/summary instead of failing. Python at
+// least died loudly one layer up on pydantic validation — with a message that
+// named the wrong cause. See intakeFailureMessage.
 func IntakePhase(ctx context.Context, deps Deps, in IntakeInput) (map[string]any, error) {
 	pr := in.PRData
 	filesChanged := len(pr.ChangedFiles)
@@ -33,8 +40,13 @@ func IntakePhase(ctx context.Context, deps Deps, in IntakeInput) (map[string]any
 	// review for — a zero IntakeGate is not confident, so control falls through
 	// to the harness classifier below exactly as Python's does.
 	var gate schemas.IntakeGate
+	// Keep the reason: when the harness ALSO fails, this is usually the same
+	// root cause (bad credentials, unroutable model) and it is the first place
+	// it was visible. It used to be discarded outright.
+	var gateErr error
 	if err := aiStructured(ctx, deps.AI, gatePrompt, prompts.IntakeGateSystem, strictAISchemas[strictAISchemaIntakeGate], &gate); err != nil {
 		gate = schemas.IntakeGate{}
+		gateErr = err
 	}
 
 	if gate.Confident {
@@ -66,8 +78,13 @@ func IntakePhase(ctx context.Context, deps Deps, in IntakeInput) (map[string]any
 		return nil, err
 	}
 	if res == nil || res.Parsed == nil {
-		// Python: `fallback_result.parsed.model_dump() if fallback_result.parsed else {}`.
-		return map[string]any{}, nil
+		harnessErr := ""
+		if res != nil {
+			harnessErr = res.ErrorMessage
+		}
+		return nil, &IntakeUnavailableError{
+			Message: intakeFailureMessage(harnessErr, gateErr),
+		}
 	}
 	out := *parsed
 	out.Languages = orEmptyStrs(out.Languages)

@@ -213,6 +213,53 @@ def _pr_summary(pr: GitHubPRData) -> str:
     return f"{pr.title}. Files changed: {len(pr.changed_files)}."
 
 
+class IntakeUnavailableError(RuntimeError):
+    """Phase 1 could not classify the PR because the model provider failed.
+
+    Raised instead of returning an empty result. ``intake_phase`` used to
+    ``return {}`` when the harness produced nothing, and the phase was recorded
+    as SUCCEEDED — so the pipeline carried on and died one layer up validating
+    ``{}`` into ``IntakeResult``. What reached the operator was:
+
+        8 validation errors for IntakeResult
+        pr_type
+          Field required [type=missing, input_value={}, input_type=dict]
+        ...
+
+    while the actual cause — ``API error (401): User not found.`` from the model
+    provider — was only visible in the container logs. A provider failure must
+    fail the phase with the provider's own message.
+
+    RuntimeError (not ValueError) so ``review()`` reports it as a 500: a
+    provider that will not answer is a deployment fault, not bad caller input.
+    """
+
+
+def _intake_failure_message(
+    harness_error: str | None, gate_error: str | None
+) -> str:
+    """Explain an empty intake classification, quoting the provider verbatim.
+
+    Both underlying calls are reported when both failed: they usually share a
+    root cause, and the ``.ai()`` gate is where it surfaced first.
+    """
+    parts = ["intake classification produced no usable output"]
+    if harness_error and harness_error.strip():
+        parts.append(f"harness error: {harness_error.strip()}")
+    if gate_error and gate_error.strip():
+        parts.append(f"ai gate error: {gate_error.strip()}")
+    if len(parts) == 1:
+        # No provider message at all — say where to look rather than nothing.
+        parts.append(
+            "the provider returned no error message either; check the node logs"
+        )
+    parts.append(
+        "verify the harness credentials and that PR_AF_MODEL is a model the "
+        "configured provider will serve"
+    )
+    return "; ".join(parts)
+
+
 def _delimit_pr_description(description: str) -> str:
     """Wrap author-controlled text in tags that cannot occur in the text."""
     if not description:
@@ -311,17 +358,29 @@ async def intake_phase(pr_data: dict, depth: str = "standard") -> dict:
         default=str,
     )
 
+    gate_error: str | None = None
     try:
         gate_result = await router.app.ai(
             f"Classify this pull request from metadata and diff footprint.\n\n{ai_input}",
             system="Return pr_type, complexity, and confident only. Use the provided schema.",
             schema=IntakeGate,
         )
-    except Exception:
+    except Exception as exc:
         # Some providers/harnesses (e.g. GLM via an OpenAI-compatible endpoint)
         # do not support the structured-output request .ai() issues. Rather than
         # sink the whole review, fall through to the harness classifier below.
+        #
+        # Keep the reason though: when the harness ALSO fails, this is usually
+        # the same root cause (bad credentials, unroutable model) and it is the
+        # first place it was visible. It used to be discarded silently.
         gate_result = None
+        detail = str(exc).strip()
+        gate_error = f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+        print(
+            f"[PR-AF] intake .ai() gate unavailable ({gate_error}); "
+            f"falling back to the harness classifier",
+            flush=True,
+        )
 
     if gate_result is not None and gate_result.confident:
         paths = [changed.path for changed in pr.changed_files]
@@ -358,7 +417,14 @@ async def intake_phase(pr_data: dict, depth: str = "standard") -> dict:
         f"actual substance of the change (not just the PR title restated).\n\n{fallback_input}",
         schema=IntakeResult,
     )
-    return fallback_result.parsed.model_dump() if fallback_result.parsed else {}
+    if fallback_result.parsed is None:
+        raise IntakeUnavailableError(
+            _intake_failure_message(
+                harness_error=getattr(fallback_result, "error_message", None),
+                gate_error=gate_error,
+            )
+        )
+    return fallback_result.parsed.model_dump()
 
 
 @router.reasoner()

@@ -241,18 +241,64 @@ func TestIntakePhaseAIUnavailableFallsBackToHarness(t *testing.T) {
 	}
 }
 
-// Contract: fallback parse failure returns Python's literal empty dict.
-func TestIntakePhaseFallbackParseFailReturnsEmpty(t *testing.T) {
+// Contract: a fallback that produces nothing is an ERROR carrying the
+// provider's message — NOT an empty dict recorded as success.
+//
+// This test previously asserted the opposite (`want {}`). A real run showed
+// why that was wrong: aforge 401'd three times, IntakePhase returned {}, and
+// mapToStruct turned that into a zero-valued IntakeResult, so the review
+// carried on with no pr_type/complexity/summary and the 401 was never
+// reported. Python's equivalent died one layer up on pydantic validation,
+// blaming missing fields instead of the provider.
+func TestIntakePhaseFallbackParseFailIsAnError(t *testing.T) {
 	aiSeam := &fakeAI{text: `{"pr_type":"","complexity":"","confident":false}`}
 	h := &mockHarness{parseFail: true}
 	out, err := IntakePhase(context.Background(), Deps{Harness: h, AI: aiSeam}, IntakeInput{
 		PRData: fixturePR(), Depth: "standard",
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("want an error, got out=%v", out)
 	}
-	if len(out) != 0 {
-		t.Fatalf("want {}, got %v", out)
+	if out != nil {
+		t.Errorf("want nil output alongside the error, got %v", out)
+	}
+	var unavailable *IntakeUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("error = %T (%v), want *IntakeUnavailableError", err, err)
+	}
+	// The provider's own message must be quoted, plus the actionable hint.
+	for _, want := range []string{
+		"produced no usable output",
+		"schema validation failed",
+		"PR_AF_MODEL",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+}
+
+// Contract: when the AI gate ALSO failed, its error is reported too — it is
+// usually the same root cause and the first place it was visible.
+func TestIntakeFailureMessageReportsBothCalls(t *testing.T) {
+	msg := intakeFailureMessage("API error (401): User not found.",
+		errors.New("AuthenticationError: 401"))
+	for _, want := range []string{
+		"harness error: API error (401): User not found.",
+		"ai gate error: AuthenticationError: 401",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q missing %q", msg, want)
+		}
+	}
+
+	// Nothing reported at all: point somewhere rather than nowhere.
+	bare := intakeFailureMessage("  ", nil)
+	if !strings.Contains(bare, "check the node logs") {
+		t.Errorf("message %q should say where to look", bare)
+	}
+	if strings.Contains(bare, "harness error") {
+		t.Errorf("message %q invented a harness error", bare)
 	}
 }
 
