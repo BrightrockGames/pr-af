@@ -44,6 +44,13 @@ FALLBACK_PATHS = (
 # Server-sent execution events, used by --verbose to tail progress. Global
 # stream; each payload carries its own execution_id.
 EVENT_STREAM_PATH = "/api/ui/v1/executions/events"
+# urllib applies its `timeout` to socket READS as well as the connect, so a
+# short value kills the event stream during any quiet stretch — a review spends
+# minutes at a time silent (cloning a large repo, one long harness completion),
+# which is exactly when progress output matters most. Generous enough to survive
+# that, short enough to still notice a genuinely dead connection and reconnect.
+EVENT_STREAM_READ_TIMEOUT_SECONDS = 600
+EVENT_STREAM_RECONNECT_MAX_BACKOFF = 30
 
 POLL_INTERVAL_SECONDS = 30
 VERBOSE_POLL_INTERVAL_SECONDS = 10
@@ -203,54 +210,89 @@ def _event_label(payload):
 def stream_events(exec_id, stop_event, start_time):
     """Tail the CP's execution event stream, printing this execution's events.
 
-    Best-effort: a control plane without the stream (or with it disabled) makes
-    this print one notice and stop, leaving the polling loop as the only
-    progress signal. Runs on a daemon thread so it can never hold up exit.
+    Reconnects for as long as the review runs. A stream that has connected once
+    but then drops (idle read timeout, a proxy closing an idle connection, the
+    control plane restarting) must not silently end the only progress output for
+    the rest of a 35-50 minute review — which is what happened before, because a
+    30s socket timeout also applied to reads and the stream is idle for minutes
+    at a time.
+
+    Best-effort: if the FIRST connect fails the endpoint is presumed absent, so
+    this prints one notice and gives up, leaving the polling loop as the progress
+    signal. Runs on a daemon thread so it can never hold up exit.
     """
     url = CP_URL + EVENT_STREAM_PATH
-    req = urllib.request.Request(
-        url, headers=_headers({"Accept": "text/event-stream"})
-    )
-    try:
-        response = urllib.request.urlopen(req, timeout=30)
-    except (urllib.error.URLError, OSError) as exc:
-        print(
-            f"[CI] Event stream unavailable ({url}: {exc}); progress will come from "
-            "polling only"
-        )
-        return
+    connected_once = False
+    announced_reconnect = False
+    backoff = 2
 
-    print(f"[CI] Tailing execution events from {url}")
-    # SSE is line-oriented: `data:` lines accumulate until a blank line ends the
-    # event. Iterating the response yields lines as they arrive, so this needs
-    # no buffering of its own.
+    while not stop_event.is_set():
+        req = urllib.request.Request(
+            url, headers=_headers({"Accept": "text/event-stream"})
+        )
+        try:
+            response = urllib.request.urlopen(
+                req, timeout=EVENT_STREAM_READ_TIMEOUT_SECONDS
+            )
+        except (urllib.error.URLError, OSError) as exc:
+            if not connected_once:
+                print(
+                    f"[CI] Event stream unavailable ({url}: {exc}); progress will "
+                    "come from polling only"
+                )
+                return
+            if stop_event.wait(backoff):
+                return
+            backoff = min(backoff * 2, EVENT_STREAM_RECONNECT_MAX_BACKOFF)
+            continue
+
+        if not connected_once:
+            print(f"[CI] Tailing execution events from {url}")
+            connected_once = True
+        backoff = 2
+
+        try:
+            _consume_event_stream(response, exec_id, stop_event, start_time)
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            if stop_event.is_set():
+                return
+            if not announced_reconnect:
+                # Say it once: a review can drop and reconnect many times, and a
+                # line per reconnect would bury the events this exists to show.
+                print(f"[CI] Event stream dropped ({exc}); reconnecting as needed")
+                announced_reconnect = True
+        if stop_event.wait(1):
+            return
+
+
+def _consume_event_stream(response, exec_id, stop_event, start_time):
+    """Print this execution's events from one SSE response until it ends.
+
+    SSE is line-oriented: `data:` lines accumulate until a blank line ends the
+    event. Iterating the response yields lines as they arrive, so this needs no
+    buffering of its own.
+    """
     data_lines = []
-    try:
-        with response:
-            for raw in response:
-                if stop_event.is_set():
-                    break
-                line = raw.decode("utf-8", errors="ignore").rstrip("\r\n")
-                if line.startswith("data:"):
-                    if len(data_lines) < 64:  # bound a pathological event
-                        data_lines.append(line[5:].lstrip())
-                    continue
-                if line:
-                    continue  # id:/event:/retry:/comment — not needed here
-                payload, data_lines = _sse_payload(data_lines), []
-                if payload is None:
-                    continue
-                if (
-                    payload.get("execution_id") or payload.get("executionId")
-                ) != exec_id:
-                    continue
-                label = _event_label(payload)
-                if label:
-                    elapsed = (time.time() - start_time) / 60
-                    print(f"[{elapsed:.1f}m] {label}", flush=True)
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        if not stop_event.is_set():
-            print(f"[CI] Event stream ended: {exc}")
+    with response:
+        for raw in response:
+            if stop_event.is_set():
+                return
+            line = raw.decode("utf-8", errors="ignore").rstrip("\r\n")
+            if line.startswith("data:"):
+                if len(data_lines) < 64:  # bound a pathological event
+                    data_lines.append(line[5:].lstrip())
+                continue
+            if line:
+                continue  # id:/event:/retry:/comment — not needed here
+            payload, data_lines = _sse_payload(data_lines), []
+            if payload is None:
+                continue
+            if (payload.get("execution_id") or payload.get("executionId")) != exec_id:
+                continue
+            label = _event_label(payload)
+            if label:
+                elapsed = (time.time() - start_time) / 60
+                print(f"[{elapsed:.1f}m] {label}", flush=True)
 
 
 def _sse_payload(data_lines):
