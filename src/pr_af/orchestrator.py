@@ -466,7 +466,12 @@ class ReviewOrchestrator:
                 changed_files=[self._to_changed_file(f) for f in parsed],
             )
         elif self.input.repo_path:
-            diff = self._compute_repo_diff(
+            # Off the event loop for the same reason as the clone in app.py:
+            # `git diff` over a large tree is bounded by
+            # PR_AF_GIT_TIMEOUT_SECONDS, so it can block long enough to stall
+            # the node's heartbeat.
+            diff = await asyncio.to_thread(
+                self._compute_repo_diff,
                 repo_path=self.input.repo_path,
                 base_ref=self.input.base_ref,
                 head_ref=self.input.head_ref,

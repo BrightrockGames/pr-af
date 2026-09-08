@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # pyright: reportMissingImports=false
+import asyncio
 import hashlib
 import hmac
 import json
@@ -194,6 +195,27 @@ def _reap_stale_workspaces(workdir: str, keep: str = "") -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+_workspace_locks_guard = threading.Lock()
+_workspace_locks: dict[str, threading.Lock] = {}
+
+
+def _workspace_lock(target_dir: str) -> threading.Lock:
+    """One lock per workspace directory, for the clone/fetch/checkout section.
+
+    _resolve_repo now runs in a worker thread (see review()), so two concurrent
+    reviews of the SAME pr_url can reach the same workspace at the same time —
+    previously the blocking git calls serialized them on the event loop by
+    accident. Different PRs use different directories (<repo>-pr<N>) and never
+    contend.
+
+    The map is never pruned: a lock is ~tens of bytes and evicting one that is
+    held would defeat the point, so a node that reviews many distinct PRs
+    accumulates a negligible amount of them.
+    """
+    with _workspace_locks_guard:
+        return _workspace_locks.setdefault(target_dir, threading.Lock())
+
+
 def _resolve_repo(repo_path: str | None, pr_url: str | None) -> str:
     workdir = os.getenv("PR_AF_WORKDIR", "/workspaces")
     target = repo_path
@@ -228,40 +250,41 @@ def _resolve_repo(repo_path: str | None, pr_url: str | None) -> str:
         # ceiling is PR_AF_GIT_TIMEOUT_SECONDS for every git call in the flow.
         clone_timeout = git_timeout_seconds()
 
-        if os.path.isdir(target_dir) and os.path.isdir(os.path.join(target_dir, ".git")):
-            subprocess.run(
-                ["git", "-C", target_dir, "fetch", "--all"],
-                env=env,
-                timeout=clone_timeout,
-                capture_output=True,
-            )
-        else:
-            # Shallow clone: only need enough history to read files, not full history
-            clone_cmd = ["git", "clone", "--depth", "1", "--no-tags", clone_url, target_dir]
-            # If we know the PR number, skip default branch checkout — we'll fetch the PR ref
-            if pr_number:
-                clone_cmd = [
-                    "git",
-                    "clone",
-                    "--depth",
-                    "1",
-                    "--no-tags",
-                    "--no-checkout",
-                    clone_url,
-                    target_dir,
-                ]
-            result = subprocess.run(
-                clone_cmd,
-                env=env,
-                timeout=clone_timeout,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                raise ValueError(f"git clone failed: {result.stderr.strip()}")
+        with _workspace_lock(target_dir):
+            if os.path.isdir(target_dir) and os.path.isdir(os.path.join(target_dir, ".git")):
+                subprocess.run(
+                    ["git", "-C", target_dir, "fetch", "--all"],
+                    env=env,
+                    timeout=clone_timeout,
+                    capture_output=True,
+                )
+            else:
+                # Shallow clone: only need enough history to read files, not full history
+                clone_cmd = ["git", "clone", "--depth", "1", "--no-tags", clone_url, target_dir]
+                # If we know the PR number, skip default branch checkout — we'll fetch the PR ref
+                if pr_number:
+                    clone_cmd = [
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--no-tags",
+                        "--no-checkout",
+                        clone_url,
+                        target_dir,
+                    ]
+                result = subprocess.run(
+                    clone_cmd,
+                    env=env,
+                    timeout=clone_timeout,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    raise ValueError(f"git clone failed: {result.stderr.strip()}")
 
-        if pr_number:
-            _checkout_pr_branch(target_dir, pr_number)
+            if pr_number:
+                _checkout_pr_branch(target_dir, pr_number)
 
         return target_dir
 
@@ -322,7 +345,14 @@ async def review(
         post_pr_number=post_pr_number,
         suggestion_mode=suggestion_mode,
     )
-    resolved_repo_path = _resolve_repo(review_input.repo_path, review_input.pr_url)
+    # Off the event loop: _resolve_repo shells out to git (clone/fetch/checkout)
+    # and on a large monorepo that blocks for MINUTES. Run inline it starved the
+    # SDK's heartbeat task, and the control plane logged
+    # "Agent pr-af marked inactive after 4 consecutive failures" mid-review —
+    # raising PR_AF_GIT_TIMEOUT_SECONDS only widened that window.
+    resolved_repo_path = await asyncio.to_thread(
+        _resolve_repo, review_input.repo_path, review_input.pr_url
+    )
     if not review_input.repo_path:
         review_input = review_input.model_copy(update={"repo_path": resolved_repo_path})
     config = ReviewConfig.from_input(review_input)
