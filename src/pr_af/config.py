@@ -20,6 +20,46 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# OpenRouter model routing
+# ---------------------------------------------------------------------------
+
+OPENROUTER_ROUTING_PREFIX = "openrouter/"
+
+
+def openrouter_ai_model(model: str) -> str:
+    """Ensure an ``.ai()`` model string routes through OpenRouter.
+
+    The ``.ai()`` seam is hardwired to OpenRouter — app.py passes
+    ``OPENROUTER_API_KEY`` and ``api_base=https://openrouter.ai/api/v1`` — but
+    LiteLLM picks the provider from the model string's own prefix, and its
+    provider base URL wins over ``api_base``. So a bare OpenRouter slug like
+    ``deepseek/deepseek-v4-flash-0731`` is read as *provider* ``deepseek``:
+
+        >>> litellm.get_llm_provider(model="deepseek/deepseek-v4-flash-0731")
+        ('deepseek-v4-flash-0731', 'deepseek', ..., 'https://api.deepseek.com/beta')
+
+    which sends the OpenRouter key to api.deepseek.com and comes back
+    ``401 {"message": "User not found.", "code": 401}`` — labelled
+    ``DeepseekException``, so the failure looks like a DeepSeek problem when
+    nothing was meant to talk to DeepSeek at all.
+
+    LiteLLM *consumes* a leading ``openrouter/`` as its routing prefix, leaving
+    the real slug for the OpenRouter API. Adding the prefix is therefore what
+    makes the configured credentials and the configured endpoint agree.
+
+    Both forms of ``PR_AF_MODEL`` work as a result: prefixed is passed through,
+    bare is normalised here. Note the HARNESS model is deliberately left alone —
+    opencode's generated config wants the prefix (the entrypoint normalises it
+    there), and the AgentField SDK's aforge provider strips it before invoking
+    the CLI, so either form reaches the same model.
+    """
+    model = model.strip()
+    if not model or model.startswith(OPENROUTER_ROUTING_PREFIX):
+        return model
+    return OPENROUTER_ROUTING_PREFIX + model
+
+
+# ---------------------------------------------------------------------------
 # Repo-specific review guidance (AGENTS.md)
 # ---------------------------------------------------------------------------
 

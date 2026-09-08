@@ -20,7 +20,13 @@ from agentfield import Agent, AIConfig
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request
 
-from .config import AIIntegrationConfig, ReviewConfig, git_env, git_timeout_seconds
+from .config import (
+    AIIntegrationConfig,
+    ReviewConfig,
+    git_env,
+    git_timeout_seconds,
+    openrouter_ai_model,
+)
 from .orchestrator import ReviewOrchestrator
 from .reasoners import router as reasoner_router
 from .schemas.input import ReviewInput  # noqa: TC001
@@ -49,7 +55,9 @@ app = Agent(
         permission_mode="auto",
     ),
     ai_config=AIConfig(
-        model=_ai_config.ai_model,
+        # Normalised so LiteLLM routes to the endpoint these credentials
+        # belong to; see config.openrouter_ai_model.
+        model=openrouter_ai_model(_ai_config.ai_model),
         api_key=os.getenv("OPENROUTER_API_KEY", ""),
         api_base="https://openrouter.ai/api/v1",
     ),

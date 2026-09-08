@@ -163,7 +163,7 @@ The node is configured entirely through the environment.
 | `PORT`                      | Listen port (default `8007`)                                   |
 | `PR_AF_PROVIDER`            | Harness provider (default `aforge`; use `opencode` to roll back) |
 | `AGENTFIELD_AFORGE_COMMAND` | AForge headless command — `exec` (default) or `do`             |
-| `PR_AF_MODEL`               | Harness model (default `deepseek/deepseek-v4-flash-0731`)      |
+| `PR_AF_MODEL`               | Model to review with — an OpenRouter slug `<vendor>/<model>` (default `deepseek/deepseek-v4-flash-0731`). An `openrouter/` prefix is optional; it is added or stripped per consumer so both forms work |
 | `PR_AF_LABEL`               | Pull-request label that triggers a webhook review (default `pr-af`) |
 | `PR_AF_MAX_CONCURRENT_REVIEWERS` | Optional review concurrency cap (minimum `1`) — applies to webhook and CI-script runs alike |
 | `PR_AF_MAX_REVIEW_DEPTH`    | Optional sub-review depth cap (minimum `0`) — applies to webhook and CI-script runs alike |

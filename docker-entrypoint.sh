@@ -12,6 +12,16 @@ set -e
 # Default matches the image ENV / benchmarked model.
 MODEL="${PR_AF_MODEL:-deepseek/deepseek-v4-flash-0731}"
 
+# opencode resolves the top-level `model` as "<provider>/<key>", and the only
+# provider this config declares is `openrouter`. A bare OpenRouter slug like
+# "deepseek/deepseek-v4-flash-0731" therefore reads as provider "deepseek",
+# which is not declared — so normalise the routing prefix in. Both forms of
+# PR_AF_MODEL work as a result.
+case "$MODEL" in
+  openrouter/*) ;;
+  *) MODEL="openrouter/$MODEL" ;;
+esac
+
 # opencode keys models under a provider by the slug *without* the provider
 # prefix, e.g. "openrouter/z-ai/glm-5.2" -> provider "openrouter", key "z-ai/glm-5.2".
 MODEL_KEY="${MODEL#openrouter/}"
