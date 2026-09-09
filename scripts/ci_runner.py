@@ -329,6 +329,44 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def require_llm_credential():
+    """Fail before dispatching when the LLM key is missing or blank.
+
+    docker-compose passes OPENROUTER_API_KEY through with no default, so a
+    missing or misnamed CI secret reaches the container as set-but-empty
+    rather than absent. Nothing downstream validates it: the node builds an
+    AI client with an empty key and opencode resolves its {env:...} apiKey to
+    nothing, so both LLM seams fail at call time — several minutes later, on
+    the far side of a large repo clone, as a provider auth error that reads
+    like a bad key rather than a missing one.
+
+    Checked on the host because that is what compose interpolates from, so
+    this needs no running container and costs nothing. Only the length is
+    ever reported; the value is never printed.
+    """
+    raw = os.environ.get("OPENROUTER_API_KEY")
+    if raw is None:
+        print("Error: OPENROUTER_API_KEY is not set.")
+    elif not raw.strip():
+        print(
+            "Error: OPENROUTER_API_KEY is set but {} character(s) of "
+            "whitespace.".format(len(raw))
+        )
+    else:
+        return
+    print("  The review needs an LLM key. In GitHub Actions, confirm the workflow maps it:")
+    print("    OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}")
+    print(
+        "  and that a secret of that exact name exists on this repository "
+        "(or its org)."
+    )
+    print(
+        "  Failing now rather than after the repo clone, which is where an "
+        "empty key would otherwise surface as a provider 401."
+    )
+    sys.exit(1)
+
+
 def main(argv=None):
     args = parse_args(argv)
 
@@ -336,6 +374,8 @@ def main(argv=None):
     if not pr_url:
         print("Error: PR_URL environment variable is required.")
         sys.exit(1)
+
+    require_llm_credential()
 
     print(f"[CI] Initiating PR-AF Review for: {pr_url}")
 
