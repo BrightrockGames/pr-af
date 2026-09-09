@@ -23,6 +23,7 @@ from fastapi import HTTPException, Request
 from .config import (
     AIIntegrationConfig,
     ReviewConfig,
+    credential,
     git_env,
     git_timeout_seconds,
     openrouter_ai_model,
@@ -58,7 +59,7 @@ app = Agent(
         # Normalised so LiteLLM routes to the endpoint these credentials
         # belong to; see config.openrouter_ai_model.
         model=openrouter_ai_model(_ai_config.ai_model),
-        api_key=os.getenv("OPENROUTER_API_KEY", ""),
+        api_key=credential("OPENROUTER_API_KEY"),
         api_base="https://openrouter.ai/api/v1",
     ),
 )

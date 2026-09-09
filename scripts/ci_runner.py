@@ -76,7 +76,9 @@ def _env_flag(name):
 def _headers(extra=None):
     """Request headers, including the CP API key when one is configured."""
     headers = dict(extra or {})
-    api_key = os.environ.get("AGENTFIELD_API_KEY", "")
+    # Trimmed: a secret stored with a trailing newline yields a header the
+    # control plane cannot match (see config.credential).
+    api_key = os.environ.get("AGENTFIELD_API_KEY", "").strip()
     if api_key:
         headers["X-API-Key"] = api_key
     return headers

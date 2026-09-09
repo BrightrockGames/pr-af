@@ -80,7 +80,7 @@ func (c AIIntegrationConfig) ProviderEnv() map[string]string {
 		"GOOGLE_API_KEY",
 		"GH_TOKEN",
 	} {
-		if v := os.Getenv(key); v != "" {
+		if v := Credential(key); v != "" {
 			env[key] = v
 		}
 	}
@@ -95,6 +95,25 @@ func (c AIIntegrationConfig) ProviderEnv() map[string]string {
 }
 
 // --- shared env readers (call-time only) ---
+
+// Credential returns the environment value for key with surrounding whitespace
+// trimmed (config.credential in the Python node).
+//
+// Secrets pass through several hands before reaching a provider — a GitHub
+// Actions secret, a compose environment: entry, a .env file — and each stores
+// the value byte for byte. A key pasted with a trailing newline is forwarded
+// verbatim, so the provider receives an "Authorization: Bearer <key><newline>"
+// header it cannot match. OpenRouter answers that with
+//
+//	401 {"error": {"message": "User not found.", "code": 401}}
+//
+// which is indistinguishable from a genuinely unknown key, sending the operator
+// off to re-validate a key that is in fact fine. Trimming is safe: no provider
+// issues a key whose value depends on surrounding whitespace. Read credentials
+// through this rather than os.Getenv so the trim cannot be missed at a seam.
+func Credential(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
+}
 
 // strEnv returns the env value for key, or def when the key is unset. A key that
 // is set (even to "") returns its value, matching Python's os.getenv(key, def).

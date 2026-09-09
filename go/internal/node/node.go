@@ -153,7 +153,7 @@ func resolvedHarnessBin(c config.AIIntegrationConfig) string {
 func BuildAgent(defaultNodeID, defaultPort, description string) (*Node, error) {
 	nodeID := envOr("NODE_ID", defaultNodeID)
 	server := envOr("AGENTFIELD_SERVER", "http://localhost:8080")
-	token := os.Getenv("AGENTFIELD_API_KEY")
+	token := config.Credential("AGENTFIELD_API_KEY")
 	port := envOr("PORT", defaultPort)
 
 	aiConf, err := config.AIConfigFromEnv()
@@ -173,7 +173,7 @@ func BuildAgent(defaultNodeID, defaultPort, description string) (*Node, error) {
 		CLIConfig:     &agent.CLIConfig{AppDescription: description},
 		HarnessConfig: harnessConfig(aiConf),
 	}
-	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
+	if apiKey := config.Credential("OPENROUTER_API_KEY"); apiKey != "" {
 		// Python's .ai() path runs through LiteLLM, which CONSUMES a leading
 		// "openrouter/" as its routing prefix before calling the OpenRouter API.
 		// The Go SDK's ai client posts the model string verbatim to BaseURL, and

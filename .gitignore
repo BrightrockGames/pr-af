@@ -14,3 +14,8 @@ agentfield-sdk/
 _glm52_bench/
 _minimax_bench/
 .sisyphus/
+
+# Throwaway virtualenvs used to run the test suite locally.
+.venv
+.venv-*
+venv/

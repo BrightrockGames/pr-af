@@ -60,6 +60,34 @@ def openrouter_ai_model(model: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Credentials
+# ---------------------------------------------------------------------------
+
+
+def credential(name: str, default: str = "") -> str:
+    """Read a credential from the environment, trimmed of surrounding whitespace.
+
+    Secrets pass through several hands before they reach a provider — a GitHub
+    Actions secret, a compose ``environment:`` entry, a ``.env`` file — and
+    every one of them stores the value byte for byte. A key pasted with a
+    trailing newline is forwarded verbatim, so the provider receives an
+    ``Authorization: Bearer <key><newline>`` header it cannot match. OpenRouter
+    answers that with
+
+        401 {"error": {"message": "User not found.", "code": 401}}
+
+    which is indistinguishable from a genuinely unknown key. The operator then
+    validates the key by hand, finds that it works, and the real fault stays
+    hidden — exactly the loop a production run spent several attempts inside.
+
+    Trimming is safe: no provider issues a key whose value depends on leading
+    or trailing whitespace. Read every credential through this rather than
+    ``os.getenv`` so the trim cannot be forgotten at one of the seams.
+    """
+    return os.getenv(name, default).strip()
+
+
+# ---------------------------------------------------------------------------
 # Repo-specific review guidance (AGENTS.md)
 # ---------------------------------------------------------------------------
 
@@ -528,7 +556,7 @@ class AIIntegrationConfig(BaseModel):
             "GOOGLE_API_KEY",
             "GH_TOKEN",
         )
-        env: dict[str, str] = {key: value for key in env_keys if (value := os.getenv(key))}
+        env: dict[str, str] = {key: value for key in env_keys if (value := credential(key))}
         env["AGENTFIELD_AFORGE_COMMAND"] = os.getenv("AGENTFIELD_AFORGE_COMMAND", "exec")
         xdg = os.getenv("XDG_DATA_HOME") or os.path.join(tempfile.gettempdir(), "opencode-shared-data")
         os.makedirs(xdg, exist_ok=True)

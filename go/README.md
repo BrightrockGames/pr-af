@@ -155,7 +155,7 @@ The node is configured entirely through the environment.
 
 | Variable                    | Purpose                                                         |
 |-----------------------------|----------------------------------------------------------------|
-| `OPENROUTER_API_KEY`        | LLM provider key (OpenRouter) — required                       |
+| `OPENROUTER_API_KEY`        | LLM provider key (OpenRouter) — required. Surrounding whitespace is trimmed, so a secret stored with a trailing newline still authenticates; an untrimmed key draws a 401 `User not found.` that looks identical to an invalid one |
 | `GH_TOKEN`                  | GitHub token (`repo` scope) for reading PRs and posting reviews |
 | `AGENTFIELD_SERVER`         | Control-plane URL (default `http://localhost:8080`)            |
 | `AGENTFIELD_API_KEY`        | Control-plane API key (if the CP has auth enabled)             |
