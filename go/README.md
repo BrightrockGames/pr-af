@@ -174,6 +174,7 @@ The node is configured entirely through the environment.
 | `AGENTFIELD_HARNESS_IDLE_SECONDS` | Harness no-output watchdog window in seconds (default `360`) — harness CLIs in JSON mode emit events only at completion boundaries, so long single completions look silent |
 | `PR_AF_GIT_TIMEOUT_SECONDS` | Wall-clock ceiling for every git subprocess — clone, fetch, checkout, diff (default `600`). Raise it for large monorepos; the previous hardcoded 30s `checkout` timeout killed reviews of big repos mid-checkout |
 | `PR_AF_SKIP_GIT_LFS`        | Skip Git-LFS content at checkout (default `true`) — LFS-tracked files become pointer stubs, not real bytes. See [Git-LFS handling](../README.md#git-lfs-handling) |
+| `PR_AF_SKIP_CREDENTIAL_PROBE` | Skip the CI runner's live check that OpenRouter accepts `OPENROUTER_API_KEY` before dispatching a review (default off). The probe is a `GET /api/v1/key` — no model, no token spend — and only an explicit 401/403 blocks the run; a timeout or provider outage is reported and ignored |
 | `HAX_API_KEY`               | Optional — enables the HITL review-approval gate when set      |
 
 The image ships the released AForge CLI (fetched and checksum-verified at build

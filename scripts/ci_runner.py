@@ -52,6 +52,12 @@ EVENT_STREAM_PATH = "/api/ui/v1/executions/events"
 EVENT_STREAM_READ_TIMEOUT_SECONDS = 600
 EVENT_STREAM_RECONNECT_MAX_BACKOFF = 30
 
+# Key introspection, per OpenRouter's docs: GET with a Bearer header, no
+# model and no token spend. Used as a preflight so a dead credential is
+# reported in seconds rather than after the repo clone.
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+CREDENTIAL_PROBE_TIMEOUT_SECONDS = 15
+
 POLL_INTERVAL_SECONDS = 30
 VERBOSE_POLL_INTERVAL_SECONDS = 10
 
@@ -329,6 +335,49 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def probe_llm_credential(api_key):
+    """Ask OpenRouter whether it accepts this key. Returns an error, or None.
+
+    The presence check above only proves a key was set; it cannot tell a live
+    key from a revoked one. This asks the provider directly, using the same
+    auth the review will use, so a credential fault is reported before the
+    clone rather than several minutes later as a pipeline failure.
+
+    A network or server-side problem is NOT treated as a bad key — the probe
+    exists to catch a misconfiguration, and must not become a new way for CI
+    to fail. Only an explicit 401/403 is conclusive.
+    """
+    request = urllib.request.Request(
+        OPENROUTER_KEY_URL,
+        headers={
+            # The Bearer prefix is required; without it OpenRouter answers 401
+            # for any key, which reads exactly like a rejected credential.
+            "Authorization": "Bearer " + api_key,
+        },
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=CREDENTIAL_PROBE_TIMEOUT_SECONDS
+        ) as response:
+            if response.status == 200:
+                return None
+            return "unexpected status {}".format(response.status)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return "OpenRouter rejected the key (HTTP {})".format(exc.code)
+        print(
+            "[CI] Note: could not verify the LLM key (HTTP {}); "
+            "continuing.".format(exc.code)
+        )
+        return None
+    except Exception as exc:
+        print(
+            "[CI] Note: could not reach OpenRouter to verify the key "
+            "({}: {}); continuing.".format(type(exc).__name__, exc)
+        )
+        return None
+
+
 def require_llm_credential():
     """Fail before dispatching when the LLM key is missing or blank.
 
@@ -353,7 +402,24 @@ def require_llm_credential():
             "whitespace.".format(len(raw))
         )
     else:
-        return
+        if _env_flag("PR_AF_SKIP_CREDENTIAL_PROBE"):
+            return
+        failure = probe_llm_credential(raw.strip())
+        if failure is None:
+            return
+        print("Error: {}.".format(failure))
+        print(
+            "  The key is present and well-formed, so this is the key's "
+            "validity, not its transport."
+        )
+        print(
+            "  Verify it directly against the endpoint the review uses -- "
+            "POST https://openrouter.ai/api/v1/chat/completions with an "
+            "Authorization: Bearer header and PR_AF_MODEL as the model -- "
+            "then update the CI secret."
+        )
+        print("  Set PR_AF_SKIP_CREDENTIAL_PROBE=1 to dispatch anyway.")
+        sys.exit(1)
     print("  The review needs an LLM key. In GitHub Actions, confirm the workflow maps it:")
     print("    OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}")
     print(

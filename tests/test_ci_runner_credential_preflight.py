@@ -29,6 +29,17 @@ sys.modules["ci_runner"] = ci_runner
 _SPEC.loader.exec_module(ci_runner)
 
 
+@pytest.fixture(autouse=True)
+def _no_live_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep these tests on the presence check, off the network.
+
+    require_llm_credential also asks OpenRouter whether a present key is
+    live (see test_ci_runner_credential_probe.py). That behaviour is tested
+    there; here it would only make these cases depend on reachability.
+    """
+    monkeypatch.setattr(ci_runner, "probe_llm_credential", lambda _key: None)
+
+
 @pytest.mark.parametrize(
     "value",
     ["", " ", "\n", "\t\r\n   "],
