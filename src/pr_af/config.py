@@ -53,6 +53,43 @@ def openrouter_ai_model(model: str) -> str:
     there), and the AgentField SDK's aforge provider strips it before invoking
     the CLI, so either form reaches the same model.
     """
+    return _with_openrouter_prefix(model)
+
+
+# Harness providers whose model string is expected to name OpenRouter. Only
+# these are normalised: prefixing a codex/gemini/grok model would break it.
+OPENROUTER_HARNESS_PROVIDERS = frozenset({"opencode", "aforge"})
+
+
+def openrouter_harness_model(model: str, provider: str) -> str:
+    """Ensure the harness CLI is invoked with an OpenRouter-qualified model.
+
+    The SDK passes ``HarnessConfig.model`` to ``opencode run`` as ``-m``
+    verbatim — ``resolve_model_and_variant`` only strips a ``#variant``
+    suffix — and opencode resolves ``-m`` as ``"<provider>/<key>"`` against
+    the providers its config declares. docker-entrypoint.sh declares exactly
+    one, ``openrouter``, since that is the only credential the image is given.
+
+    So a bare OpenRouter slug like ``deepseek/deepseek-v4-flash-0731`` names
+    provider ``deepseek``, which is undeclared: opencode exits 1 in about two
+    seconds having written no output file, and the SDK reports only "Process
+    exited with code 1 and produced no output".
+
+    Normalising the *config file* is not enough — ``-m`` overrides the config
+    ``model`` field, so the flag has to carry the prefix as well. The SDK's
+    own opencode tests expect this form (``-m openrouter/z-ai/glm-5.2``).
+
+    Safe for aforge: its provider strips one leading ``openrouter/`` before
+    invoking the CLI, so the prefix is a no-op there. Left alone for any
+    other provider, where an OpenRouter prefix would be actively wrong.
+    """
+    if provider.strip().lower() not in OPENROUTER_HARNESS_PROVIDERS:
+        return model.strip()
+    return _with_openrouter_prefix(model)
+
+
+def _with_openrouter_prefix(model: str) -> str:
+    """Add the routing prefix unless it is already there. Empty stays empty."""
     model = model.strip()
     if not model or model.startswith(OPENROUTER_ROUTING_PREFIX):
         return model

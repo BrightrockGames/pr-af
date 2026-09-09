@@ -27,6 +27,7 @@ from .config import (
     git_env,
     git_timeout_seconds,
     openrouter_ai_model,
+    openrouter_harness_model,
 )
 from .orchestrator import ReviewOrchestrator
 from .reasoners import router as reasoner_router
@@ -48,7 +49,12 @@ app = Agent(
     api_key=os.getenv("AGENTFIELD_API_KEY"),
     harness_config=HarnessConfig(
         provider=_ai_config.provider,
-        model=_ai_config.harness_model,
+        # Qualified with the OpenRouter provider: the SDK hands this to
+        # `opencode run -m` verbatim, and -m overrides the config file's
+        # model. See config.openrouter_harness_model.
+        model=openrouter_harness_model(
+            _ai_config.harness_model, _ai_config.provider
+        ),
         max_turns=_ai_config.max_turns,
         env=_ai_config.provider_env(),
         opencode_bin=_ai_config.harness_bin or _ai_config.opencode_bin,

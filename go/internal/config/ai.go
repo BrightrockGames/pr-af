@@ -94,6 +94,43 @@ func (c AIIntegrationConfig) ProviderEnv() map[string]string {
 	return env
 }
 
+// openRouterRoutingPrefix qualifies a model slug with the provider that
+// serves it. opencode resolves a model as "<provider>/<key>".
+const openRouterRoutingPrefix = "openrouter/"
+
+// openRouterHarnessProviders are the harness providers whose model string is
+// expected to name OpenRouter. Only these are normalised: prefixing a
+// codex/gemini/grok model would break it.
+var openRouterHarnessProviders = map[string]bool{"opencode": true, "aforge": true}
+
+// HarnessModelForCLI qualifies the harness model with the OpenRouter provider
+// (config.openrouter_harness_model in the Python node).
+//
+// The SDK passes HarnessConfig.Model to `opencode run` as -m verbatim, and
+// opencode resolves -m as "<provider>/<key>" against the providers its config
+// declares. docker-entrypoint.sh declares exactly one, openrouter, since that
+// is the only credential the image is given. A bare slug such as
+// "deepseek/deepseek-v4-flash-0731" therefore names the undeclared provider
+// "deepseek": opencode exits 1 within seconds having written no output file,
+// and the SDK reports only that the process produced no output.
+//
+// Normalising the generated config file is not sufficient, because -m
+// overrides its model field. The SDK's own opencode tests expect this
+// qualified form (-m openrouter/z-ai/glm-5.2).
+//
+// Safe for aforge, whose provider strips one leading openrouter/ before
+// invoking the CLI. Any other provider is returned untouched.
+func HarnessModelForCLI(model, provider string) string {
+	model = strings.TrimSpace(model)
+	if !openRouterHarnessProviders[strings.ToLower(strings.TrimSpace(provider))] {
+		return model
+	}
+	if model == "" || strings.HasPrefix(model, openRouterRoutingPrefix) {
+		return model
+	}
+	return openRouterRoutingPrefix + model
+}
+
 // --- shared env readers (call-time only) ---
 
 // Credential returns the environment value for key with surrounding whitespace

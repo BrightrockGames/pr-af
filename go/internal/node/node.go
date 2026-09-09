@@ -110,9 +110,13 @@ func defaultRunReview(ctx context.Context, deps orch.Deps, in schemas.ReviewInpu
 // harness configuration. An empty BinPath lets the SDK select the configured
 // provider's default executable.
 func harnessConfig(c config.AIIntegrationConfig) *agent.HarnessConfig {
+	// Model is qualified with the OpenRouter provider rather than passed
+	// through: the SDK hands it to `opencode run -m` verbatim, and -m
+	// overrides the model field in the generated config file. See
+	// config.HarnessModelForCLI.
 	return &agent.HarnessConfig{
 		Provider:       c.Provider,
-		Model:          c.HarnessModel,
+		Model:          config.HarnessModelForCLI(c.HarnessModel, c.Provider),
 		MaxTurns:       c.MaxTurns,
 		PermissionMode: "auto",
 		Env:            c.ProviderEnv(),

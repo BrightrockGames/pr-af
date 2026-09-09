@@ -42,8 +42,13 @@ func TestHarnessConfigPreservesExistingFields(t *testing.T) {
 		OpencodeBin: "C:/bin/opencode-custom",
 	}
 	got := harnessConfig(conf)
-	if got.Provider != conf.Provider || got.Model != conf.HarnessModel || got.MaxTurns != conf.MaxTurns || got.PermissionMode != "auto" || got.BinPath != conf.OpencodeBin {
-		t.Errorf("harnessConfig fields = %+v", got)
+	// Model is deliberately NOT passed through: it is qualified with the
+	// OpenRouter provider so that `opencode run -m` names a provider the
+	// generated config actually declares. A bare slug there made opencode
+	// exit 1 with no output. See config.HarnessModelForCLI.
+	wantModel := "openrouter/" + conf.HarnessModel
+	if got.Provider != conf.Provider || got.Model != wantModel || got.MaxTurns != conf.MaxTurns || got.PermissionMode != "auto" || got.BinPath != conf.OpencodeBin {
+		t.Errorf("harnessConfig fields = %+v (want Model %q)", got, wantModel)
 	}
 	if want := map[string]string{
 		"OPENAI_API_KEY":            "openai-key",
